@@ -51,13 +51,14 @@ export function SettingsScreen() {
         </div>
       </header>
 
-      {storageStatus.status !== "ready" && (
-        <div className="storage-notice">
-          Storage unavailable — settings won’t persist this session. ({storageStatus.reason ?? "no detail"})
-        </div>
-      )}
+      <div className="screen-body">
+        {storageStatus.status !== "ready" && (
+          <div className="storage-notice">
+            Storage unavailable — settings won’t persist this session. ({storageStatus.reason ?? "no detail"})
+          </div>
+        )}
 
-      <div className="set-groups">
+        <div className="set-groups">
         <SettingGroup
           kanji="外"
           title="Appearance"
@@ -213,6 +214,7 @@ export function SettingsScreen() {
             </div>
           </div>
         </section>
+        </div>
       </div>
     </div>
   );

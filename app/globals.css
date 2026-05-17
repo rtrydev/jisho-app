@@ -839,14 +839,19 @@ body {
   overflow: hidden;
 }
 .hrow-meta {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px;
   font-size: 10.5px; color: var(--ink-faint);
   margin-top: 3px; letter-spacing: 0.02em;
 }
+.hrow-meta > * { white-space: nowrap; }
 .dot-sep { color: var(--ink-ghost); }
 .ink-seal { color: var(--seal); font-weight: 500; }
-.hrow-actions { display: flex; gap: 2px; opacity: 0.6; }
+.hrow-actions { display: flex; gap: 4px; opacity: 0.6; }
 .hrow:hover .hrow-actions { opacity: 1; }
+.hrow-actions .ic-btn { width: 40px; height: 40px; border-radius: 6px; }
+@media (max-width: 820px) {
+  .hrow-actions .ic-btn { width: 44px; height: 44px; }
+}
 
 /* ─── Search field ─────────────────────────────────────────────────── */
 .search-field {
@@ -1072,17 +1077,42 @@ body {
 [data-jp-scale="L"] .jp { font-size: 1.08em; }
 
 /* ─── Screen containers ────────────────────────────────────────────── */
+/* Scrollable flex child: `flex: 1 1 0` + `min-height: 0` is the only combo
+   that reliably scrolls inside `.app-main` (a flex column whose height is
+   resolved by the parent grid row). `height: 100%` here used to break
+   scrolling on History/Favorites because the percentage didn't resolve
+   against the flex parent — the screen grew to its content height and the
+   overflow simply sat under the bottom tab bar. */
 .screen {
   position: relative;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
-}
-.screen {
   padding: 18px 16px 18px;
   display: flex; flex-direction: column; gap: 16px;
   overflow-y: auto;
-  height: 100%;
 }
+/* Direct children must NOT flex-shrink. Without this, `.hlist` (which has
+   `overflow: hidden` for its rounded corners) gets squeezed down to its
+   min-content height and clips the rest of the rows internally — `.screen`
+   never sees layout overflow, so its `overflow-y: auto` never produces a
+   scrollbar. Same trap applies to `.fav-grid` and `.read-cards`. */
+.screen > * { flex-shrink: 0; }
+
+/* Inner scroll region used by History/Favorites so the screen header
+   (title, filter, tabs) stays pinned while only the list/grid scrolls.
+   `flex: 1 1 0` + `min-height: 0` lets it absorb the remaining height of
+   `.screen` exactly; the children stay at their natural size so this is
+   what overflows. */
+.screen-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+}
+@media (min-width: 821px) {
+  .screen-body { gap: 22px; }
+}
+.screen-body > * { flex-shrink: 0; }
 @media (min-width: 821px) {
   .screen {
     padding: 28px 36px 28px;
@@ -1149,7 +1179,6 @@ body {
 .read {
   padding: 0; gap: 0;
   overflow-y: auto; overflow-x: hidden;
-  height: 100%;
   display: flex; flex-direction: column;
   min-width: 0;
 }

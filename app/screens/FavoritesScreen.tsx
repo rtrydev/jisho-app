@@ -185,51 +185,53 @@ export function FavoritesScreen() {
         ]}
       />
 
-      {cards.length === 0 ? (
-        <div className="fav-empty">
-          {shown.length === 0
-            ? `No ${handleType} favorites yet. Save terms from the Read screen.`
-            : `${shown.length} saved — but the dictionary doesn't expose these keys in the current stub.`}
-        </div>
-      ) : mobile ? (
-        <div className="fav-grid">
-          {cards.map(({ entry, card }) => {
-            const term = card.surface ?? card.head;
-            return (
-              <TermCard
-                key={entry.id}
-                card={card}
-                favorite
-                onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
-                onCopy={() => copyTerm(term)}
-                onShare={() => copyShareLink(term)}
-                compact={mobile}
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <div className="fav-grid rc-grid-cols">
-          {[cards.filter((_, i) => i % 2 === 0), cards.filter((_, i) => i % 2 === 1)].map((col, colIdx) => (
-            <div className="rc-col" key={colIdx}>
-              {col.map(({ entry, card }) => {
-                const term = card.surface ?? card.head;
-                return (
-                  <TermCard
-                    key={entry.id}
-                    card={card}
-                    favorite
-                    onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
-                    onCopy={() => copyTerm(term)}
-                    onShare={() => copyShareLink(term)}
-                    compact={mobile}
-                  />
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="screen-body">
+        {cards.length === 0 ? (
+          <div className="fav-empty">
+            {shown.length === 0
+              ? `No ${handleType} favorites yet. Save terms from the Read screen.`
+              : `${shown.length} saved — but the dictionary doesn't expose these keys in the current stub.`}
+          </div>
+        ) : mobile ? (
+          <div className="fav-grid">
+            {cards.map(({ entry, card }) => {
+              const term = card.surface ?? card.head;
+              return (
+                <TermCard
+                  key={entry.id}
+                  card={card}
+                  favorite
+                  onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
+                  onCopy={() => copyTerm(term)}
+                  onShare={() => copyShareLink(term)}
+                  compact={mobile}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div className="fav-grid rc-grid-cols">
+            {[cards.filter((_, i) => i % 2 === 0), cards.filter((_, i) => i % 2 === 1)].map((col, colIdx) => (
+              <div className="rc-col" key={colIdx}>
+                {col.map(({ entry, card }) => {
+                  const term = card.surface ?? card.head;
+                  return (
+                    <TermCard
+                      key={entry.id}
+                      card={card}
+                      favorite
+                      onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
+                      onCopy={() => copyTerm(term)}
+                      onShare={() => copyShareLink(term)}
+                      compact={mobile}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

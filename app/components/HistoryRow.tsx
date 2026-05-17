@@ -49,10 +49,10 @@ export function HistoryRow({
       </div>
       <div className="hrow-actions">
         <button type="button" className="ic-btn" aria-label="Replay" onClick={(e) => { e.stopPropagation(); onReplay?.(); }}>
-          <Icon.Play size={14} />
+          <Icon.Play size={18} />
         </button>
         <button type="button" className="ic-btn" aria-label="Delete" onClick={(e) => { e.stopPropagation(); onDelete?.(); }}>
-          <Icon.Trash size={14} />
+          <Icon.Trash size={18} />
         </button>
       </div>
     </li>

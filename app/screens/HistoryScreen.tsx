@@ -84,35 +84,37 @@ export function HistoryScreen({
         </div>
       </header>
 
-      {filtered.length === 0 ? (
-        <div className="rc-empty">
-          {history.entries.length === 0
-            ? "No analyses yet. Paste Japanese text on the Read screen to get started."
-            : "No entries match your filter."}
-        </div>
-      ) : (
-        <HistoryList>
-          {filtered.map((h, i) => (
-            <HistoryRow
-              key={h.id}
-              entry={{
-                id: h.id,
-                text: h.text,
-                termCount: h.termCount,
-                when: relativeWhen(h.lastViewedAt),
-                active: h.id === effectiveActiveId,
-              }}
-              index={i}
-              onOpen={() => onOpen?.(h.text)}
-              onReplay={() => onOpen?.(h.text)}
-              onDelete={() => {
-                deleteHistoryEntry(h.id);
-                showToast({ message: "Entry removed from history", tone: "warn" });
-              }}
-            />
-          ))}
-        </HistoryList>
-      )}
+      <div className="screen-body">
+        {filtered.length === 0 ? (
+          <div className="rc-empty">
+            {history.entries.length === 0
+              ? "No analyses yet. Paste Japanese text on the Read screen to get started."
+              : "No entries match your filter."}
+          </div>
+        ) : (
+          <HistoryList>
+            {filtered.map((h, i) => (
+              <HistoryRow
+                key={h.id}
+                entry={{
+                  id: h.id,
+                  text: h.text,
+                  termCount: h.termCount,
+                  when: relativeWhen(h.lastViewedAt),
+                  active: h.id === effectiveActiveId,
+                }}
+                index={i}
+                onOpen={() => onOpen?.(h.text)}
+                onReplay={() => onOpen?.(h.text)}
+                onDelete={() => {
+                  deleteHistoryEntry(h.id);
+                  showToast({ message: "Entry removed from history", tone: "warn" });
+                }}
+              />
+            ))}
+          </HistoryList>
+        )}
+      </div>
     </div>
   );
 }
