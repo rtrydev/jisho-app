@@ -12,7 +12,7 @@ export function SideRail<T extends string>({
   items,
   onChange,
   brand = "Jisho",
-  subtitle = "辞 · v2",
+  subtitle = "辞書",
   marginalia = "客 ・ 静 ・ 読",
 }: {
   active: T;

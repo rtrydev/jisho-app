@@ -11,9 +11,6 @@ describe("Read screen", () => {
     const textarea = await screen.findByPlaceholderText(/日本語をペーストしてください/);
     expect(textarea).toHaveValue(DEMO_SENTENCE);
 
-    // English translation rendered from the analyzer output.
-    await screen.findByText(/I had always called that person/);
-
     // Breakdown shows token count.
     await waitFor(() => {
       expect(screen.getByText(/Breakdown/)).toBeInTheDocument();

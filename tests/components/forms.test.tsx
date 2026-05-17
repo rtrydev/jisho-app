@@ -184,7 +184,7 @@ describe("FloatingActions", () => {
     const user = userEvent.setup();
     let copied = 0;
     render(<FloatingActions onCopy={() => copied++} />);
-    const btn = screen.getByRole("button", { name: /copy card/i });
+    const btn = screen.getByRole("button", { name: /copy term/i });
     await user.click(btn);
     expect(copied).toBe(1);
     // After click, the icon switches to the check (existence of <text> or path
@@ -196,7 +196,7 @@ describe("FloatingActions", () => {
     const user = userEvent.setup();
     let shared = 0;
     render(<FloatingActions onShare={() => shared++} />);
-    await user.click(screen.getByRole("button", { name: /share term/i }));
+    await user.click(screen.getByRole("button", { name: /copy share link/i }));
     expect(shared).toBe(1);
   });
 });

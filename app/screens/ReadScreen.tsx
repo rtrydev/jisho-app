@@ -13,14 +13,11 @@ import { Button } from "../components/Button";
 import { Segmented } from "../components/Segmented";
 import { Sheet } from "../components/Sheet";
 import { TermCard, type TermCardData } from "../components/TermCard";
+import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
-import {
-  DEMO_ENGLISH,
-  DEMO_SOURCE,
-  isDemoSentence,
-} from "../lib/engine/demoResources";
-import { formatAllResults, formatCard, formatGloss, writeClipboard } from "../lib/copy";
+import { DEMO_SOURCE, isDemoSentence } from "../lib/engine/demoResources";
+import { formatAllResults, formatGloss, writeClipboard } from "../lib/copy";
 import { buildShareUrl } from "../lib/share";
 import { useAnalyzer } from "../providers/EngineProvider";
 import { useSettings } from "../providers/SettingsProvider";
@@ -37,6 +34,7 @@ export function ReadScreen({
   const { settings } = useSettings();
   const { result, status, run } = useAnalyzer();
   const { recordHistory, isFavorite, toggleFavorite } = useUserData();
+  const { showToast } = useToast();
 
   const [text, setText] = useState<string>(initialText ?? settings.defaultSentence);
   const [activeChip, setActiveChip] = useState<string | null>(null);
@@ -80,6 +78,13 @@ export function ReadScreen({
     return result.cardItems.filter((c) => c.type === filter);
   }, [result.cardItems, filter]);
 
+  const cardColumns = useMemo<[TermCardData[], TermCardData[]]>(() => {
+    const left: TermCardData[] = [];
+    const right: TermCardData[] = [];
+    visibleCards.forEach((c, i) => (i % 2 === 0 ? left : right).push(c));
+    return [left, right];
+  }, [visibleCards]);
+
   const onChipClick = useCallback(
     (cardId: string | null | undefined) => {
       if (!cardId) return;
@@ -101,6 +106,7 @@ export function ReadScreen({
     if (ok) {
       setShareConfirm(true);
       window.setTimeout(() => setShareConfirm(false), 1300);
+      showToast({ message: "Share URL copied to clipboard", tone: "success" });
     }
     // Native share where available
     const nav = typeof navigator !== "undefined" ? navigator : undefined;
@@ -115,7 +121,7 @@ export function ReadScreen({
         /* user cancelled */
       }
     }
-  }, [text]);
+  }, [text, showToast]);
 
   const onCopyAll = useCallback(async () => {
     const formatted = formatAllResults(text, result.english, result.cardItems, settings.copyFormat);
@@ -123,28 +129,76 @@ export function ReadScreen({
     if (ok) {
       setCopyAllConfirm(true);
       window.setTimeout(() => setCopyAllConfirm(false), 1300);
+      showToast({ message: "Analysis copied to clipboard", tone: "success" });
     }
-  }, [text, result, settings.copyFormat]);
+  }, [text, result, settings.copyFormat, showToast]);
 
   const onCardCopy = useCallback(
     (card: TermCardData) => {
-      void writeClipboard(formatCard(card, settings.copyFormat));
+      const term = card.surface ?? card.head;
+      void writeClipboard(term).then((ok) => {
+        if (ok) {
+          showToast({
+            message: (
+              <>
+                Copied <span className="jp">{term}</span>
+              </>
+            ),
+            tone: "success",
+          });
+        }
+      });
     },
-    [settings.copyFormat],
+    [showToast],
   );
 
   const onCardShare = useCallback(
     (card: TermCardData) => {
-      void writeClipboard(buildShareUrl(card.surface ?? card.head));
+      const term = card.surface ?? card.head;
+      void writeClipboard(buildShareUrl(term)).then((ok) => {
+        if (ok) {
+          showToast({
+            message: (
+              <>
+                Share link for <span className="jp">{term}</span> copied
+              </>
+            ),
+            tone: "success",
+          });
+        }
+      });
     },
-    [],
+    [showToast],
+  );
+
+  const onCardCopyGloss = useCallback(
+    (g: string) => {
+      void writeClipboard(formatGloss(g, settings.copyFormat)).then((ok) => {
+        if (ok) showToast({ message: "Gloss copied", tone: "success" });
+      });
+    },
+    [settings.copyFormat, showToast],
   );
 
   const onCardFavorite = useCallback(
     (card: TermCardData) => {
-      toggleFavorite(card.type, dictKeyOf(card), card.surface ?? card.head);
+      const term = card.surface ?? card.head;
+      const wasFavorite = isFavorite(card.type, dictKeyOf(card));
+      toggleFavorite(card.type, dictKeyOf(card), term);
+      showToast({
+        message: wasFavorite ? (
+          <>
+            Removed <span className="jp">{term}</span> from favorites
+          </>
+        ) : (
+          <>
+            Added <span className="jp">{term}</span> to favorites
+          </>
+        ),
+        tone: wasFavorite ? "warn" : "success",
+      });
     },
-    [toggleFavorite],
+    [toggleFavorite, isFavorite, showToast],
   );
 
   const sheetCard = sheetCardId
@@ -152,9 +206,7 @@ export function ReadScreen({
     : null;
 
   const meaningfulTokenCount = result.tokens.filter((t) => t.pos !== "punct" && t.pos !== "記号").length;
-  const showDemoTranslation = isDemoSentence(result.text);
-  const englishCaption = result.english ?? (showDemoTranslation ? DEMO_ENGLISH : undefined);
-  const sourceCaption = result.source ?? (showDemoTranslation ? DEMO_SOURCE : undefined);
+  const sourceCaption = result.source ?? (isDemoSentence(result.text) ? DEMO_SOURCE : undefined);
 
   return (
     <div className={`screen read ${mobile ? "mobile" : "desktop"}`}>
@@ -174,7 +226,9 @@ export function ReadScreen({
               onClick={onShare}
               aria-label="Share query"
             >
-              {shareConfirm ? "Link copied" : "Share"}
+              <span className="btn-label-md">
+                {shareConfirm ? "Link copied" : "Share"}
+              </span>
             </Button>
             <Button
               variant="ghost"
@@ -183,7 +237,9 @@ export function ReadScreen({
               disabled={result.cardItems.length === 0}
               aria-label="Copy all results"
             >
-              {copyAllConfirm ? "Copied" : "Copy all"}
+              <span className="btn-label-md">
+                {copyAllConfirm ? "Copied" : "Copy all"}
+              </span>
             </Button>
             <Button
               variant="icon"
@@ -198,25 +254,16 @@ export function ReadScreen({
           </div>
         </div>
         {!collapsed && (
-          <>
-            <div className="ri-field">
-              <textarea
-                className="ri-textarea jp"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                spellCheck={false}
-                rows={1}
-                placeholder="日本語をペーストしてください…"
-              />
-            </div>
-            {englishCaption && (
-              <div className="ri-trans serif">
-                <span className="ink-faint">“</span>
-                {englishCaption}
-                <span className="ink-faint">”</span>
-              </div>
-            )}
-          </>
+          <div className="ri-field">
+            <textarea
+              className="ri-textarea jp"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              spellCheck={false}
+              rows={1}
+              placeholder="日本語をペーストしてください…"
+            />
+          </div>
         )}
       </section>
 
@@ -271,7 +318,7 @@ export function ReadScreen({
                     : "Paste Japanese text above to begin."
                   : "No terms match this filter."}
           </div>
-        ) : (
+        ) : mobile ? (
           <div className="rc-grid">
             {visibleCards.map((c) => (
               <div
@@ -286,12 +333,38 @@ export function ReadScreen({
                   favorite={isFavorite(c.type, dictKeyOf(c))}
                   onToggleFavorite={() => onCardFavorite(c)}
                   onCopy={() => onCardCopy(c)}
-                  onCopyGloss={(g) =>
-                    void writeClipboard(formatGloss(g, settings.copyFormat))
-                  }
+                  onCopyGloss={onCardCopyGloss}
                   onShare={() => onCardShare(c)}
                   highlight={pulseId === c.id}
                 />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rc-grid rc-grid-cols">
+            {cardColumns.map((col, colIdx) => (
+              <div className="rc-col" key={colIdx}>
+                {col.map((c) => (
+                  <div
+                    key={c.id}
+                    ref={(node) => {
+                      if (node) cardRefs.current.set(c.id, node);
+                      else cardRefs.current.delete(c.id);
+                    }}
+                  >
+                    <TermCard
+                      card={c}
+                      favorite={isFavorite(c.type, dictKeyOf(c))}
+                      onToggleFavorite={() => onCardFavorite(c)}
+                      onCopy={() => onCardCopy(c)}
+                      onCopyGloss={(g) =>
+                        void writeClipboard(formatGloss(g, settings.copyFormat))
+                      }
+                      onShare={() => onCardShare(c)}
+                      highlight={pulseId === c.id}
+                    />
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -327,9 +400,7 @@ export function ReadScreen({
               favorite={isFavorite(sheetCard.type, dictKeyOf(sheetCard))}
               onToggleFavorite={() => onCardFavorite(sheetCard)}
               onCopy={() => onCardCopy(sheetCard)}
-              onCopyGloss={(g) =>
-                void writeClipboard(formatGloss(g, settings.copyFormat))
-              }
+              onCopyGloss={onCardCopyGloss}
               onShare={() => onCardShare(sheetCard)}
             />
           </Sheet>

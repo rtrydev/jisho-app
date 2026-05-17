@@ -100,7 +100,7 @@ export default function ShowcasePage() {
             <Hanko size="lg" aria-label="Jisho" />
             <div>
               <div className="serif" style={{ fontSize: 32, lineHeight: 1.1, letterSpacing: "-0.01em" }}>
-                Jisho · v2
+                Jisho
               </div>
               <div className="mono ink-faint" style={{ fontSize: 11, marginTop: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                 Editorial Ink · Design System
@@ -161,7 +161,7 @@ export default function ShowcasePage() {
             </Specimen>
             <Specimen label="Mono · JetBrains Mono">
               <div className="mono" style={{ fontSize: 13, color: "var(--ink-soft)" }}>
-                jp:v2:settings → SettingsProvider → CSS vars → every component
+                settings → SettingsProvider → CSS vars → every component
               </div>
             </Specimen>
           </div>

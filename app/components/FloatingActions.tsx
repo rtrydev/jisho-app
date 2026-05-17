@@ -22,13 +22,15 @@ export function FloatingActions({
     onCopy?.();
     setTimeout(() => setCopied(false), 1100);
   };
+  const favLabel = favorite ? "Remove favorite" : "Add favorite";
   return (
     <div className="float-actions" style={style}>
       <button
         type="button"
         className={`fa-btn fav ${favorite ? "on" : ""}`}
-        aria-label={favorite ? "Remove favorite" : "Add favorite"}
+        aria-label={favLabel}
         aria-pressed={favorite ?? false}
+        data-tooltip={favLabel}
         onClick={onFavorite}
       >
         <Icon.Seal filled={favorite} size={14} />
@@ -36,7 +38,8 @@ export function FloatingActions({
       <button
         type="button"
         className="fa-btn"
-        aria-label="Copy card"
+        aria-label="Copy term"
+        data-tooltip="Copy term"
         onClick={handleCopy}
       >
         {copied ? <Icon.Check size={14} /> : <Icon.Copy size={14} />}
@@ -44,7 +47,8 @@ export function FloatingActions({
       <button
         type="button"
         className="fa-btn"
-        aria-label="Share term"
+        aria-label="Copy share link"
+        data-tooltip="Copy share link"
         onClick={onShare}
       >
         <Icon.ShareArrow size={14} />

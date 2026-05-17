@@ -5,9 +5,10 @@ import { Button } from "../components/Button";
 import { Hanko } from "../components/Hanko";
 import { Segmented } from "../components/Segmented";
 import { TermCard } from "../components/TermCard";
+import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
-import { formatCard, formatGloss, writeClipboard } from "../lib/copy";
+import { formatGloss, writeClipboard } from "../lib/copy";
 import {
   exportJson,
   exportMarkdown,
@@ -26,8 +27,74 @@ export function FavoritesScreen() {
   const { settings } = useSettings();
   const { favorites, toggleFavorite, importFavorites } = useUserData();
   const { getEntry } = useAnalyzer();
+  const { showToast } = useToast();
   const [tab, setTab] = useState<Tab>("vocab");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const copyTerm = useCallback(
+    (term: string) => {
+      void writeClipboard(term).then((ok) => {
+        if (ok)
+          showToast({
+            message: (
+              <>
+                Copied <span className="jp">{term}</span>
+              </>
+            ),
+            tone: "success",
+          });
+      });
+    },
+    [showToast],
+  );
+
+  const copyShareLink = useCallback(
+    (term: string) => {
+      void writeClipboard(buildShareUrl(term)).then((ok) => {
+        if (ok)
+          showToast({
+            message: (
+              <>
+                Share link for <span className="jp">{term}</span> copied
+              </>
+            ),
+            tone: "success",
+          });
+      });
+    },
+    [showToast],
+  );
+
+  const copyGloss = useCallback(
+    (g: string) => {
+      void writeClipboard(formatGloss(g, settings.copyFormat)).then((ok) => {
+        if (ok) showToast({ message: "Gloss copied", tone: "success" });
+      });
+    },
+    [settings.copyFormat, showToast],
+  );
+
+  const handleToggleFavorite = useCallback(
+    (type: "vocab" | "grammar", dictKey: string, term: string) => {
+      const wasFav = favorites.entries.some(
+        (e) => e.type === type && e.dictKey === dictKey,
+      );
+      toggleFavorite(type, dictKey, term);
+      showToast({
+        message: wasFav ? (
+          <>
+            Removed <span className="jp">{term}</span> from favorites
+          </>
+        ) : (
+          <>
+            Added <span className="jp">{term}</span> to favorites
+          </>
+        ),
+        tone: wasFav ? "warn" : "success",
+      });
+    },
+    [favorites, toggleFavorite, showToast],
+  );
 
   const vocab = useMemo(() => favorites.entries.filter((e) => e.type === "vocab"), [favorites]);
   const grammar = useMemo(() => favorites.entries.filter((e) => e.type === "grammar"), [favorites]);
@@ -135,19 +202,44 @@ export function FavoritesScreen() {
             ? `No ${handleType} favorites yet. Save terms from the Read screen.`
             : `${shown.length} saved — but the dictionary doesn't expose these keys in the current stub.`}
         </div>
-      ) : (
+      ) : mobile ? (
         <div className="fav-grid">
-          {cards.map(({ entry, card }) => (
-            <TermCard
-              key={entry.id}
-              card={card}
-              favorite
-              onToggleFavorite={() => toggleFavorite(card.type, dictKeyOf(card), card.surface ?? card.head)}
-              onCopy={() => void writeClipboard(formatCard(card, settings.copyFormat))}
-              onCopyGloss={(g) => void writeClipboard(formatGloss(g, settings.copyFormat))}
-              onShare={() => void writeClipboard(buildShareUrl(card.surface ?? card.head))}
-              compact={mobile}
-            />
+          {cards.map(({ entry, card }) => {
+            const term = card.surface ?? card.head;
+            return (
+              <TermCard
+                key={entry.id}
+                card={card}
+                favorite
+                onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
+                onCopy={() => copyTerm(term)}
+                onCopyGloss={copyGloss}
+                onShare={() => copyShareLink(term)}
+                compact={mobile}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="fav-grid rc-grid-cols">
+          {[cards.filter((_, i) => i % 2 === 0), cards.filter((_, i) => i % 2 === 1)].map((col, colIdx) => (
+            <div className="rc-col" key={colIdx}>
+              {col.map(({ entry, card }) => {
+                const term = card.surface ?? card.head;
+                return (
+                  <TermCard
+                    key={entry.id}
+                    card={card}
+                    favorite
+                    onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
+                    onCopy={() => copyTerm(term)}
+                    onCopyGloss={copyGloss}
+                    onShare={() => copyShareLink(term)}
+                    compact={mobile}
+                  />
+                );
+              })}
+            </div>
           ))}
         </div>
       )}

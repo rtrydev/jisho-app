@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import * as Icon from "./Icon";
+import { Hanko } from "./Hanko";
 import { SideRail, type RailItem } from "./SideRail";
 import { BottomTabs, type TabItem } from "./BottomTabs";
 
@@ -48,6 +49,15 @@ export function AppShell({
   return (
     <div className={`app paper-tex ${mobile ? "mobile" : "desktop"}`}>
       {!mobile && <SideRail<ScreenId> items={RAIL_ITEMS} active={active} onChange={onChange} />}
+      {mobile && (
+        <header className="app-topbar" aria-label="App">
+          <Hanko size="sm" />
+          <div className="app-topbar-text">
+            <span className="serif app-topbar-title">Jisho</span>
+            <span className="mono app-topbar-sub">辞書</span>
+          </div>
+        </header>
+      )}
       <main className="app-main" style={{ position: "relative", overflow: "hidden" }}>
         {children}
       </main>

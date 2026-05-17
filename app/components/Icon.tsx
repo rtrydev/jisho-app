@@ -36,8 +36,14 @@ export const Favorites = (p: IconProps) => (
 
 export const Settings = (p: IconProps) => (
   <svg {...withDefaults(p)}>
-    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <path
+      d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.61l-1.92-3.32a.5.5 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.48-.41h-3.84a.5.5 0 0 0-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.5.5 0 0 0-.59.22L2.74 8.87a.5.5 0 0 0 .12.61l2.03 1.58c-.05.3-.09.62-.09.94 0 .31.02.64.07.94L2.84 14.52a.5.5 0 0 0-.12.61l1.92 3.32a.5.5 0 0 0 .59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54a.5.5 0 0 0 .48.41h3.84a.5.5 0 0 0 .47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96a.5.5 0 0 0 .59-.22l1.92-3.32a.5.5 0 0 0-.12-.61l-2.01-1.58z"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.3" fill="none"/>
   </svg>
 );
 

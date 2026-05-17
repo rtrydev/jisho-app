@@ -9,6 +9,7 @@ import { SettingGroup, SettingRow } from "../components/SettingGroup";
 import { StorageBar } from "../components/StorageBar";
 import { SwatchRow } from "../components/SwatchRow";
 import { TextField } from "../components/TextField";
+import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import { approximateUsageBytes } from "../lib/storage";
 import type {
@@ -29,6 +30,7 @@ export function SettingsScreen() {
   const mobile = useIsMobile();
   const { settings, setSetting, reset } = useSettings();
   const { history, favorites, clearHistory, clearAllData, storageStatus } = useUserData();
+  const { showToast } = useToast();
   const [confirm, setConfirm] = useState<Confirm>(null);
 
   // Recompute usage whenever any persisted store changes. `approximateUsageBytes`
@@ -46,7 +48,7 @@ export function SettingsScreen() {
         <div>
           <h1 className="sc-title">Settings</h1>
           <div className="sc-sub mono ink-faint">
-            Changes apply immediately · stored at <span className="ink">jp:v2:settings</span>
+            Changes apply immediately · stored locally on this device
           </div>
         </div>
       </header>
@@ -166,12 +168,23 @@ export function SettingsScreen() {
               <Button
                 variant="warn"
                 onClick={() => {
-                  if (confirm === "clearHistory") clearHistory();
+                  if (confirm === "clearHistory") {
+                    const n = history.entries.length;
+                    clearHistory();
+                    showToast({
+                      message: `Cleared ${n} history ${n === 1 ? "entry" : "entries"}`,
+                      tone: "warn",
+                    });
+                  }
                   if (confirm === "clearAll") {
                     clearAllData();
                     reset();
+                    showToast({ message: "All local data erased", tone: "warn" });
                   }
-                  if (confirm === "reset") reset();
+                  if (confirm === "reset") {
+                    reset();
+                    showToast({ message: "Settings reset to defaults", tone: "success" });
+                  }
                   setConfirm(null);
                 }}
               >
@@ -191,14 +204,13 @@ export function SettingsScreen() {
             <Hanko size="lg">辞書</Hanko>
             <div className="set-about-text">
               <div className="serif" style={{ fontSize: 22, lineHeight: 1.2 }}>
-                Jisho · v2.0
+                Jisho
               </div>
               <div className="mono ink-faint" style={{ fontSize: 11, marginTop: 4 }}>
                 build 2026.05 · client-only · MIT
               </div>
               <div className="ink-soft" style={{ fontSize: 13, marginTop: 10, maxWidth: 340 }}>
-                A quiet workspace for reading Japanese. Engine preserved byte-for-byte from v1;
-                everything else is new.
+                A quiet workspace for reading Japanese.
               </div>
             </div>
           </div>

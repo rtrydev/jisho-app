@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Jisho · v2",
+  title: "Jisho",
   description:
     "A quiet workspace for reading Japanese — Editorial Ink. Client-side reading assistant.",
 };

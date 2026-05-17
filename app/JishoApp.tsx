@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { AppShell, type ScreenId } from "./components/AppShell";
+import { ToastProvider } from "./components/Toast";
 import { ReadScreen } from "./screens/ReadScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { FavoritesScreen } from "./screens/FavoritesScreen";
@@ -60,7 +61,9 @@ export function JishoApp({
     <SettingsProvider>
       <UserDataProvider>
         <EngineProvider resources={engineResources}>
-          <AppRoot />
+          <ToastProvider>
+            <AppRoot />
+          </ToastProvider>
         </EngineProvider>
       </UserDataProvider>
     </SettingsProvider>

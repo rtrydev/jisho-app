@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "../components/Button";
 import { HistoryList, HistoryRow } from "../components/HistoryRow";
 import { SearchField } from "../components/SearchField";
+import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import {
   filterEntries,
@@ -24,6 +25,7 @@ export function HistoryScreen({
   const mobile = useIsMobile();
   const { history, deleteHistoryEntry, clearHistory } = useUserData();
   const { result } = useAnalyzer();
+  const { showToast } = useToast();
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -63,8 +65,13 @@ export function HistoryScreen({
                 <Button
                   variant="warn"
                   onClick={() => {
+                    const n = history.entries.length;
                     clearHistory();
                     setConfirmClear(false);
+                    showToast({
+                      message: `Cleared ${n} history ${n === 1 ? "entry" : "entries"}`,
+                      tone: "warn",
+                    });
                   }}
                   aria-label="Confirm clear"
                 >
@@ -100,7 +107,10 @@ export function HistoryScreen({
               index={i}
               onOpen={() => onOpen?.(h.text)}
               onReplay={() => onOpen?.(h.text)}
-              onDelete={() => deleteHistoryEntry(h.id)}
+              onDelete={() => {
+                deleteHistoryEntry(h.id);
+                showToast({ message: "Entry removed from history", tone: "warn" });
+              }}
             />
           ))}
         </HistoryList>

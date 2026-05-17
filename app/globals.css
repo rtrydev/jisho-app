@@ -2,7 +2,7 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Jisho v2 · "Editorial Ink" design system
+   Jisho · "Editorial Ink" design system
    Tokens + component styles ported from the design handoff.
    ───────────────────────────────────────────────────────────────────────────── */
 
@@ -178,10 +178,23 @@ body {
   width: 100%;
   display: grid;
   position: relative;
+  min-height: 100vh;
 }
-.app.desktop { grid-template-columns: 232px 1fr; }
-.app.mobile  { grid-template-columns: 1fr; grid-template-rows: 1fr 72px; }
-.app-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app.desktop {
+  grid-template-columns: 232px 1fr;
+  align-items: stretch;
+  height: 100vh;
+}
+.app.mobile  { grid-template-columns: 1fr; grid-template-rows: auto 1fr 72px; height: 100vh; }
+.app-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+.app.desktop .app-main { height: 100vh; min-height: 100vh; }
+.app.mobile  .app-main { min-height: 0; height: auto; overflow: hidden; }
 
 .jp { font-family: var(--f-jp); }
 .jp ruby rt { font-family: var(--f-jp); font-weight: 400; color: var(--ink-faint); }
@@ -269,6 +282,9 @@ body {
   display: flex; flex-direction: column;
   gap: 24px;
   position: relative;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 .rail::after {
   content: ""; position: absolute; top: 0; right: -1px; bottom: 0; width: 1px;
@@ -316,9 +332,22 @@ body {
 .rail-active .rail-kanji { color: var(--seal); }
 .rail-foot { margin-top: auto; display: flex; justify-content: center; padding: 8px 0; }
 
+/* ─── Mobile top bar (brand) ──────────────────────────────────────── */
+.app-topbar {
+  grid-row: 1;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  background: var(--paper-sink);
+  border-bottom: 1px solid var(--line);
+  min-height: 56px;
+}
+.app-topbar-text { display: flex; flex-direction: column; line-height: 1; min-width: 0; }
+.app-topbar-title { font-size: 18px; font-weight: 500; letter-spacing: 0.005em; color: var(--ink); }
+.app-topbar-sub   { font-size: 10px; color: var(--ink-faint); margin-top: 4px; letter-spacing: 0.1em; }
+
 /* ─── Bottom tabs ──────────────────────────────────────────────────── */
 .btab {
-  grid-row: 2;
+  grid-row: 3;
   background: var(--paper-sink);
   border-top: 1px solid var(--line);
   display: grid; grid-template-columns: repeat(4, 1fr);
@@ -385,6 +414,11 @@ body {
 .btn-warn { color: var(--seal); }
 .btn-warn:hover { background: var(--seal-glow); border-color: var(--grammar-edge); color: var(--seal-ink); }
 
+/* Label text that should collapse to icon-only on mobile (the icon is the
+   button's leftIcon; the aria-label still names it for assistive tech). */
+.mobile .btn-label-md { display: none; }
+.mobile .btn-ghost:has(> .btn-label-md) { padding: 5px 6px; }
+
 /* Icon-only square button (used in floating actions, history rows) */
 .ic-btn {
   width: 28px; height: 28px; border-radius: 3px;
@@ -431,12 +465,13 @@ body {
   background: var(--paper-card);
   border: 1px solid var(--line);
   border-radius: 3px;
-  padding: 8px 10px 6px;
+  padding: 14px 10px 6px;
   min-width: 44px;
   cursor: pointer;
   position: relative;
   transition: all .14s;
   flex-shrink: 0;
+  line-height: 1.2;
 }
 .chip:hover { border-color: var(--ink-soft); transform: translateY(-1px); box-shadow: var(--sh-2); }
 .chip-surface {
@@ -482,7 +517,7 @@ body {
   break-inside: avoid;
 }
 .card-vocab   { border-left: 3px solid var(--indigo-soft); }
-.card-grammar { border-left: 3px solid var(--seal); background: linear-gradient(to right, var(--grammar-tint), var(--paper-card) 40%); }
+.card-grammar { border-left: 3px solid var(--seal); }
 
 .float-actions {
   position: absolute; top: 12px; right: 12px;
@@ -500,10 +535,57 @@ body {
   background: transparent; border: none; color: var(--ink-faint);
   cursor: pointer; border-radius: 2px;
   transition: all .12s;
+  position: relative;
 }
 .fa-btn:hover { background: var(--paper); color: var(--ink); }
 .fa-btn.fav.on { color: var(--seal); }
 .fa-btn.fav.on:hover { color: var(--seal-ink); background: var(--seal-glow); }
+
+/* Custom tooltip rendered from data-tooltip — replaces the browser default
+   so it picks up the parchment palette and ink typography. */
+.fa-btn[data-tooltip]::after,
+.fa-btn[data-tooltip]::before {
+  pointer-events: none;
+  position: absolute;
+  opacity: 0;
+  transition: opacity .14s ease, transform .14s ease;
+  white-space: nowrap;
+}
+.fa-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translate(-50%, -2px);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--f-ui);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: 3px;
+  box-shadow: var(--sh-2);
+  z-index: 20;
+}
+.fa-btn[data-tooltip]::before {
+  content: "";
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translate(-50%, -2px);
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 5px solid var(--ink);
+  z-index: 20;
+}
+.fa-btn[data-tooltip]:hover::after,
+.fa-btn[data-tooltip]:focus-visible::after,
+.fa-btn[data-tooltip]:hover::before,
+.fa-btn[data-tooltip]:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-delay: .25s;
+}
 
 .card-head {
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -913,11 +995,12 @@ body {
 .sc-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 /* ─── Read screen ──────────────────────────────────────────────────── */
-.read.desktop { padding: 0; gap: 0; overflow: hidden; height: 100%; display: flex; flex-direction: column; }
+/* The whole read screen scrolls as one column so the breakdown moves with
+   the terms list. The input on top stays put via `position: sticky`. */
+.read.desktop { padding: 0; gap: 0; overflow-y: auto; overflow-x: hidden; height: 100%; display: flex; flex-direction: column; }
 .read.desktop > * { padding-left: 36px; padding-right: 36px; }
-.read.desktop .read-cards-wrap { overflow-y: auto; flex: 1 1 auto; }
-.read.mobile { padding: 0; gap: 0; overflow-y: auto; height: 100%; display: flex; flex-direction: column; }
-.read.mobile > * { padding-left: 16px; padding-right: 16px; }
+.read.mobile { padding: 0; gap: 0; overflow-y: auto; overflow-x: hidden; height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.read.mobile > * { padding-left: 16px; padding-right: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
 
 .read-input {
   padding-top: 24px; padding-bottom: 18px;
@@ -961,9 +1044,13 @@ body {
 }
 .rb-chips {
   display: flex; align-items: flex-end; gap: 4px;
-  overflow-x: auto; padding-bottom: 8px;
+  overflow-x: auto;
+  /* Extra vertical padding so the active chip's ring + lifted transform
+     plus the ruby <rt> annotation above the base text don't get clipped
+     by the horizontal-scroll container. */
+  padding: 10px 2px 10px;
 }
-.mobile .chip { padding: 6px 8px 4px; min-width: 36px; }
+.mobile .chip { padding: 12px 8px 4px; min-width: 36px; }
 .mobile .chip-surface { font-size: 15px; }
 
 /* Cards section */
@@ -977,6 +1064,22 @@ body {
   gap: 14px;
 }
 .mobile .rc-grid { grid-template-columns: 1fr; gap: 12px; }
+
+/* Two-column masonry: each column flows independently so unequal card
+   heights don't leave gaps. Even indexes flow into the left column, odd
+   into the right (distribution happens in the screen component). */
+.rc-grid-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.rc-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
 .rc-empty {
   padding: 36px 24px; text-align: center;
   font-family: var(--f-display); font-style: italic;
@@ -1077,4 +1180,88 @@ body {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--seal); font-family: var(--f-mono);
   letter-spacing: 0.02em;
+}
+
+/* ─── Toast ────────────────────────────────────────────────────────── */
+.toast-viewport {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 32px));
+}
+.toast {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: 22px 1fr 22px;
+  gap: 10px;
+  align-items: center;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--seal);
+  border-radius: 4px;
+  padding: 10px 12px 10px 14px;
+  font-family: var(--f-ui);
+  font-size: 13px;
+  color: var(--ink);
+  box-shadow: var(--sh-3);
+  letter-spacing: 0.01em;
+  animation: toast-in .22s cubic-bezier(.2, .7, .3, 1) both;
+  position: relative;
+  overflow: hidden;
+}
+.toast::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--seal-glow);
+  opacity: 0.35;
+  pointer-events: none;
+}
+.toast > * { position: relative; z-index: 1; }
+.toast-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--seal);
+}
+.toast-msg {
+  line-height: 1.4;
+  word-break: break-word;
+}
+.toast-msg .jp { font-family: var(--f-jp); }
+.toast-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  background: transparent; border: none;
+  color: var(--ink-faint); cursor: pointer; border-radius: 2px;
+  transition: color .12s, background .12s;
+}
+.toast-close:hover { color: var(--ink); background: var(--paper-sink); }
+
+.toast-success { border-left-color: var(--moss); }
+.toast-success .toast-icon { color: var(--moss); }
+.toast-success::before { background: rgba(94, 107, 58, 0.08); }
+
+.toast-warn { border-left-color: var(--seal); }
+.toast-warn .toast-icon { color: var(--seal); }
+
+.toast-closing {
+  animation: toast-out .2s cubic-bezier(.4, 0, .8, .3) both;
+}
+
+@keyframes toast-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes toast-out {
+  from { transform: translateX(0);     opacity: 1; max-height: 80px; margin-bottom: 8px; padding-top: 10px; padding-bottom: 10px; }
+  to   { transform: translateX(16px);  opacity: 0; max-height: 0;    margin-bottom: 0;   padding-top: 0;    padding-bottom: 0;   }
+}
+
+@media (max-width: 540px) {
+  .toast-viewport { top: 12px; right: 12px; left: 12px; max-width: none; align-items: flex-end; }
+  .toast { width: 100%; }
 }
