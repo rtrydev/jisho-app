@@ -9,6 +9,14 @@
 import { useSyncExternalStore } from "react";
 import { readStore, writeStore, type StoreConfig } from "./storage";
 
+// Test seam: every constructed store registers here so the test setup can
+// rewind module-level state to defaults between test cases.
+const REGISTRY: ReactiveStore<unknown>[] = [];
+
+export function __resetAllReactiveStoresForTests(): void {
+  for (const s of REGISTRY) s.__resetForTests();
+}
+
 export class ReactiveStore<T> {
   private state: T;
   private listeners = new Set<() => void>();
@@ -18,6 +26,14 @@ export class ReactiveStore<T> {
   constructor(private cfg: StoreConfig<T>) {
     this.defaultSnapshot = cfg.defaults();
     this.state = this.defaultSnapshot;
+    REGISTRY.push(this as unknown as ReactiveStore<unknown>);
+  }
+
+  /** Test-only: forget the cached hydration so the next snapshot rereads storage. */
+  __resetForTests(): void {
+    this.hydrated = false;
+    this.state = this.cfg.defaults();
+    this.notify();
   }
 
   /** Idempotent client-side hydration from storage. */

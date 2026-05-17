@@ -7,9 +7,11 @@ import { SearchField } from "../components/SearchField";
 import { useIsMobile } from "../components/AppShell";
 import {
   filterEntries,
+  historyId,
   HISTORY_CAP,
   relativeWhen,
 } from "../lib/history";
+import { useAnalyzer } from "../providers/EngineProvider";
 import { useUserData } from "../providers/UserDataProvider";
 
 export function HistoryScreen({
@@ -21,8 +23,14 @@ export function HistoryScreen({
 }) {
   const mobile = useIsMobile();
   const { history, deleteHistoryEntry, clearHistory } = useUserData();
+  const { result } = useAnalyzer();
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+
+  // The "currently open" row is whichever entry matches the analyser's last
+  // successful analysis; explicit `activeId` from share/replay wins if set.
+  const effectiveActiveId =
+    activeId ?? (result.text.trim() ? historyId(result.text) : null);
 
   const filtered = useMemo(() => filterEntries(history, query), [history, query]);
 
@@ -87,7 +95,7 @@ export function HistoryScreen({
                 text: h.text,
                 termCount: h.termCount,
                 when: relativeWhen(h.lastViewedAt),
-                active: h.id === activeId,
+                active: h.id === effectiveActiveId,
               }}
               index={i}
               onOpen={() => onOpen?.(h.text)}
