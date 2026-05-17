@@ -5,7 +5,6 @@ import { Button } from "../components/Button";
 import { HistoryList, HistoryRow } from "../components/HistoryRow";
 import { SearchField } from "../components/SearchField";
 import { useToast } from "../components/Toast";
-import { useIsMobile } from "../components/AppShell";
 import {
   filterEntries,
   historyId,
@@ -22,7 +21,6 @@ export function HistoryScreen({
   activeId?: string | null;
   onOpen?: (text: string) => void;
 }) {
-  const mobile = useIsMobile();
   const { history, deleteHistoryEntry, clearHistory } = useUserData();
   const { result } = useAnalyzer();
   const { showToast } = useToast();
@@ -37,7 +35,7 @@ export function HistoryScreen({
   const filtered = useMemo(() => filterEntries(history, query), [history, query]);
 
   return (
-    <div className={`screen history ${mobile ? "mobile" : "desktop"}`}>
+    <div className="screen history">
       <header className="sc-head">
         <div>
           <h1 className="sc-title">History</h1>

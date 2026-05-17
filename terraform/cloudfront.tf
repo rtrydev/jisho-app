@@ -43,6 +43,9 @@ resource "aws_cloudfront_response_headers_policy" "site" {
         "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
+        # `next/font/google` downloads woff2 files at build time and
+        # serves them from the Next.js bundle (same origin), so no
+        # third-party font hosts are needed here.
         "font-src 'self' data:",
         "connect-src 'self'",
         "manifest-src 'self'",

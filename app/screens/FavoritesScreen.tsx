@@ -148,7 +148,7 @@ export function FavoritesScreen() {
   const handleType: FavoriteType = tab;
 
   return (
-    <div className={`screen favorites ${mobile ? "mobile" : "desktop"}`}>
+    <div className="screen favorites">
       <header className="sc-head">
         <div>
           <h1 className="sc-title" style={{ display: "flex", alignItems: "center" }}>
@@ -161,7 +161,7 @@ export function FavoritesScreen() {
             {favorites.entries.length} saved · re-resolved from live dictionary
           </div>
         </div>
-        <div className="sc-head-actions">
+        <div className="sc-head-actions sc-head-actions-equal">
           <input
             ref={fileInputRef}
             type="file"

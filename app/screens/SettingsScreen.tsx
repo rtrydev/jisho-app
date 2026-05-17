@@ -10,7 +10,6 @@ import { StorageBar } from "../components/StorageBar";
 import { SwatchRow } from "../components/SwatchRow";
 import { TextField } from "../components/TextField";
 import { useToast } from "../components/Toast";
-import { useIsMobile } from "../components/AppShell";
 import { approximateUsageBytes } from "../lib/storage";
 import type {
   Accent,
@@ -27,7 +26,6 @@ type Confirm = null | "clearHistory" | "clearAll" | "reset";
 const STORAGE_BUDGET = 5 * 1024 * 1024; // ~5 MB practical localStorage budget
 
 export function SettingsScreen() {
-  const mobile = useIsMobile();
   const { settings, setSetting, reset } = useSettings();
   const { history, favorites, clearHistory, clearAllData, storageStatus } = useUserData();
   const { showToast } = useToast();
@@ -43,7 +41,7 @@ export function SettingsScreen() {
   const usageKb = (usageBytes / 1024).toFixed(1);
 
   return (
-    <div className={`screen settings ${mobile ? "mobile" : "desktop"}`}>
+    <div className="screen settings">
       <header className="sc-head">
         <div>
           <h1 className="sc-title">Settings</h1>

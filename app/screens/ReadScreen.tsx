@@ -215,7 +215,7 @@ export function ReadScreen({
   const sourceCaption = result.source ?? (isDemoSentence(result.text) ? DEMO_SOURCE : undefined);
 
   return (
-    <div className={`screen read ${mobile ? "mobile" : "desktop"}`}>
+    <div className="screen read">
       {/* Sticky input */}
       <section className={`read-input ${collapsed ? "" : "sticky"}`}>
         <div className="ri-head">
@@ -228,7 +228,7 @@ export function ReadScreen({
           <div className="ri-actions">
             <Button
               variant="ghost"
-              leftIcon={<Icon.ShareArrow size={12} />}
+              leftIcon={<Icon.ShareArrow size={16} />}
               onClick={onShare}
               aria-label="Share query"
             >
@@ -238,7 +238,7 @@ export function ReadScreen({
             </Button>
             <Button
               variant="ghost"
-              leftIcon={<Icon.Copy size={12} />}
+              leftIcon={<Icon.Copy size={16} />}
               onClick={onCopyAll}
               disabled={result.cardItems.length === 0}
               aria-label="Copy all results"
@@ -253,7 +253,7 @@ export function ReadScreen({
               onClick={() => setCollapsed((c) => !c)}
             >
               <Icon.Collapse
-                size={14}
+                size={18}
                 style={{ transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform .14s" }}
               />
             </Button>
@@ -392,15 +392,7 @@ export function ReadScreen({
             onClick={() => setSheetCardId(null)}
             aria-hidden
           />
-          <Sheet>
-            <button
-              type="button"
-              className="sheet-close"
-              aria-label="Close"
-              onClick={() => setSheetCardId(null)}
-            >
-              <Icon.Close size={14} />
-            </button>
+          <Sheet onClose={() => setSheetCardId(null)}>
             <TermCard
               card={sheetCard}
               favorite={isFavorite(sheetCard.type, dictKeyOf(sheetCard))}

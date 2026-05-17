@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import * as Icon from "./Icon";
 import { Hanko } from "./Hanko";
 import { SideRail, type RailItem } from "./SideRail";
@@ -22,18 +22,33 @@ const TAB_ITEMS: TabItem<ScreenId>[] = [
   { id: "settings", label: "Settings", icon: Icon.Settings },
 ];
 
-/** A small reactive bp hook for the responsive shell. */
-export function useIsMobile(breakpoint: number = 820): boolean {
-  const [mobile, setMobile] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
-    const apply = () => setMobile(mq.matches);
-    apply();
-    mq.addEventListener?.("change", apply);
-    return () => mq.removeEventListener?.("change", apply);
-  }, [breakpoint]);
-  return mobile;
+const MOBILE_BREAKPOINT_PX = 820;
+
+/** Reactive breakpoint hook. Seeds from `<html data-platform>` (written by the
+ *  pre-hydration script in `app/layout.tsx`) so the very first render already
+ *  knows whether we're on mobile — no JS-driven re-layout flicker after
+ *  hydration. */
+export function useIsMobile(breakpoint: number = MOBILE_BREAKPOINT_PX): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      if (typeof window === "undefined") return () => {};
+      const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+      mq.addEventListener?.("change", cb);
+      return () => mq.removeEventListener?.("change", cb);
+    },
+    () => {
+      if (typeof window === "undefined") return false;
+      return window.matchMedia(`(max-width: ${breakpoint}px)`).matches;
+    },
+    // Server snapshot: read from <html data-platform> if available (only on
+    // the *client*, during hydration). Server-render returns `false`
+    // unconditionally — the pre-hydration script writes `data-platform`
+    // before paint, and the client snapshot above takes over after mount.
+    () => {
+      if (typeof document === "undefined") return false;
+      return document.documentElement.dataset.platform === "mobile";
+    },
+  );
 }
 
 export function AppShell({
@@ -45,23 +60,24 @@ export function AppShell({
   onChange: (id: ScreenId) => void;
   children: ReactNode;
 }) {
-  const mobile = useIsMobile();
+  // The shell layout is fully CSS-driven via @media queries on `.app`,
+  // `.app-topbar`, `.rail`, and `.btab`. Render every nav variant on every
+  // viewport; the stylesheet hides what doesn't belong. This is what removes
+  // the "desktop chrome flashes before mobile chrome takes over" jank — there
+  // is no JS branch deciding which nav to mount.
   return (
-    <div className={`app paper-tex ${mobile ? "mobile" : "desktop"}`}>
-      {!mobile && <SideRail<ScreenId> items={RAIL_ITEMS} active={active} onChange={onChange} />}
-      {mobile && (
-        <header className="app-topbar" aria-label="App">
-          <Hanko size="sm" />
-          <div className="app-topbar-text">
-            <span className="serif app-topbar-title">Jisho</span>
-            <span className="mono app-topbar-sub">辞書</span>
-          </div>
-        </header>
-      )}
-      <main className="app-main" style={{ position: "relative", overflow: "hidden" }}>
-        {children}
-      </main>
-      {mobile && <BottomTabs<ScreenId> items={TAB_ITEMS} active={active} onChange={onChange} />}
+    <div className="app paper-tex">
+      <SideRail<ScreenId> items={RAIL_ITEMS} active={active} onChange={onChange} />
+      <header className="app-topbar" aria-label="App">
+        <Hanko size="md" />
+        <div className="app-topbar-text">
+          <span className="serif app-topbar-title">Jisho</span>
+          <span className="mono app-topbar-sub">辞書</span>
+        </div>
+      </header>
+      <main className="app-main">{children}</main>
+      <BottomTabs<ScreenId> items={TAB_ITEMS} active={active} onChange={onChange} />
     </div>
   );
 }
+

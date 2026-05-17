@@ -1,4 +1,8 @@
-@import url("https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Noto+Serif+JP:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+/* Google Fonts is loaded via <link> in app/layout.tsx so the request lives in
+   the document head, not inside this stylesheet. An @import here would block
+   application of the rest of the stylesheet on the *parent* sheet's load —
+   and our CSP blocks googleapis.com / gstatic.com cross-origin, so on first
+   load iOS Safari would render unstyled text until the import resolved. */
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -97,11 +101,20 @@
 }
 
 /* ─── Type ─────────────────────────────────────────────────────────── */
+/* `--font-eb-garamond` / `--font-dm-sans` / `--font-jetbrains-mono` are
+   exposed on <html> by next/font in app/layout.tsx — each variable
+   already includes the family name plus next/font's generated metric
+   fallback alias. The hardcoded strings here are the OS-level
+   fallbacks for when the self-hosted woff2 hasn't loaded yet.
+   --f-jp keeps Mincho-family system fonts only — we no longer ship
+   Noto Serif JP from Google because next/font doesn't expose a
+   japanese subset, and a render-blocking external <link> caused the
+   white-flash on mobile cold reload. */
 :root {
-  --f-display: "EB Garamond", "Times New Roman", Georgia, serif;
-  --f-ui:      "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --f-jp:      "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", "MS Mincho", serif;
-  --f-mono:    "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --f-display: var(--font-eb-garamond), "Times New Roman", Georgia, serif;
+  --f-ui:      var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-jp:      "Hiragino Mincho ProN", "Yu Mincho", "Yu Mincho Light", "MS Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+  --f-mono:    var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
 }
 
 /* Register tokens with Tailwind v4 so utility classes work too */
@@ -123,10 +136,10 @@
   --color-indigo-soft:  var(--indigo-soft);
   --color-moss:         var(--moss);
 
-  --font-display: "EB Garamond", "Times New Roman", Georgia, serif;
-  --font-ui:      "DM Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-jp:      "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --font-display: var(--f-display);
+  --font-ui:      var(--f-ui);
+  --font-jp:      var(--f-jp);
+  --font-mono:    var(--f-mono);
 }
 
 /* ─── Furigana modes (data-furigana on the artboard) ──────────────── */
@@ -171,6 +184,16 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+/* Shell layout is responsive via @media queries — NOT via a JS-driven class
+   on `.app`. Rendering all nav variants and letting CSS pick the right one
+   is what avoids the "desktop chrome flashes before mobile chrome takes
+   over" flicker on first paint.
+
+   `height: 100dvh` (with 100vh fallback for older WebKit) is what keeps the
+   bottom tab bar above iOS Safari's dynamic URL bar. There is intentionally
+   no `min-height: 100vh` rule here — that would win over `100dvh` whenever
+   the URL bar collapses the visible viewport, pushing the bottom row out of
+   sight. */
 .app {
   background: var(--paper);
   color: var(--ink);
@@ -178,23 +201,33 @@ body {
   width: 100%;
   display: grid;
   position: relative;
-  min-height: 100vh;
-}
-.app.desktop {
-  grid-template-columns: 232px 1fr;
-  align-items: stretch;
+  overflow: hidden;
   height: 100vh;
+  height: 100dvh;
+  /* Mobile (default): topbar, scrollable main, bottom tabs */
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
-.app.mobile  { grid-template-columns: 1fr; grid-template-rows: auto 1fr 72px; height: 100vh; }
 .app-main {
+  /* Positioned + clipped so the mobile `.sheet-backdrop` (which uses
+     `position: absolute; inset: 0`) anchors to the main column rather than
+     the whole document. */
+  position: relative;
+  overflow: hidden;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--paper);
 }
-.app.desktop .app-main { height: 100vh; min-height: 100vh; }
-.app.mobile  .app-main { min-height: 0; height: auto; overflow: hidden; }
+
+@media (min-width: 821px) {
+  .app {
+    grid-template-columns: 232px 1fr;
+    grid-template-rows: 1fr;
+    height: 100vh;
+  }
+}
 
 .jp { font-family: var(--f-jp); }
 .jp ruby rt { font-family: var(--f-jp); font-weight: 400; color: var(--ink-faint); }
@@ -274,17 +307,24 @@ body {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-/* ─── Side rail ────────────────────────────────────────────────────── */
+/* ─── Side rail ──────────────────────────────────────────────────────
+   Hidden by default (mobile) — only the desktop media query shows it.
+   This is what lets the JSX render the rail on every viewport without
+   it flashing on mobile before hydration. */
 .rail {
+  display: none;
   background: var(--paper-sink);
   border-right: 1px solid var(--line);
   padding: 24px 16px 16px;
-  display: flex; flex-direction: column;
+  flex-direction: column;
   gap: 24px;
   position: relative;
   height: 100vh;
   max-height: 100vh;
   overflow: hidden;
+}
+@media (min-width: 821px) {
+  .rail { display: flex; }
 }
 .rail::after {
   content: ""; position: absolute; top: 0; right: -1px; bottom: 0; width: 1px;
@@ -335,15 +375,25 @@ body {
 /* ─── Mobile top bar (brand) ──────────────────────────────────────── */
 .app-topbar {
   grid-row: 1;
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px;
-  background: var(--paper-sink);
-  border-bottom: 1px solid var(--line);
-  min-height: 56px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 16px 4px;
+  /* Same paper as the search-bar section below so the brand row reads as
+     one continuous header. No border-bottom either — the rule between
+     header and breakdown comes from `.read-input`. The bottom padding
+     here is small (4px) because `.read-input` adds its own top padding;
+     the visual gap is the SUM, kept tight so the brand + search read as
+     one block. */
+  background: var(--paper);
+  min-height: 64px;
 }
 .app-topbar-text { display: flex; flex-direction: column; line-height: 1; min-width: 0; }
-.app-topbar-title { font-size: 18px; font-weight: 500; letter-spacing: 0.005em; color: var(--ink); }
-.app-topbar-sub   { font-size: 10px; color: var(--ink-faint); margin-top: 4px; letter-spacing: 0.1em; }
+.app-topbar-title { font-size: 24px; font-weight: 500; letter-spacing: 0.005em; color: var(--ink); }
+.app-topbar-sub   { font-size: 12px; color: var(--ink-faint); margin-top: 5px; letter-spacing: 0.1em; }
+
+/* Desktop hides the mobile brand bar. */
+@media (min-width: 821px) {
+  .app-topbar { display: none; }
+}
 
 /* ─── Bottom tabs ──────────────────────────────────────────────────── */
 .btab {
@@ -352,7 +402,13 @@ body {
   border-top: 1px solid var(--line);
   display: grid; grid-template-columns: repeat(4, 1fr);
   align-items: stretch;
-  padding: 6px 4px 14px;
+  /* `max(...)` keeps the visual 14px breathing room on devices with no home
+     indicator, while pushing the tabs above the inset on iPhones that report
+     a non-zero safe-area-inset-bottom. */
+  padding: 6px 4px max(14px, env(safe-area-inset-bottom));
+}
+@media (min-width: 821px) {
+  .btab { display: none; }
 }
 .btab-item {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -414,20 +470,26 @@ body {
 .btn-warn { color: var(--seal); }
 .btn-warn:hover { background: var(--seal-glow); border-color: var(--grammar-edge); color: var(--seal-ink); }
 
-/* Label text that should collapse to icon-only on mobile (the icon is the
-   button's leftIcon; the aria-label still names it for assistive tech). */
-.mobile .btn-label-md { display: none; }
-.mobile .btn-ghost:has(> .btn-label-md) { padding: 5px 6px; }
-
-/* Icon-only square button (used in floating actions, history rows) */
+/* Icon-only square button (used in floating actions, history rows).
+   Sized for a comfortable touch target — mobile gets a slightly larger
+   square to clear the 36px-ish iOS hit-zone guideline. */
 .ic-btn {
-  width: 28px; height: 28px; border-radius: 3px;
+  width: 32px; height: 32px; border-radius: 4px;
   background: transparent; border: 1px solid transparent;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--ink-faint); cursor: pointer;
   transition: all .12s;
 }
 .ic-btn:hover { background: var(--paper-sink); color: var(--ink); border-color: var(--line); }
+@media (max-width: 820px) {
+  /* Label text that should collapse to icon-only on mobile (the icon is the
+     button's leftIcon; the aria-label still names it for assistive tech). */
+  .btn-label-md { display: none; }
+  /* Icon-only ghost button on mobile: expand the hit area without making
+     the chrome look heavy. Pairs with the larger .ic-btn touch target. */
+  .btn-ghost:has(> .btn-label-md) { padding: 9px 10px; }
+  .ic-btn { width: 38px; height: 38px; }
+}
 
 /* ─── Read input field ─────────────────────────────────────────────── */
 .ri-field {
@@ -451,7 +513,7 @@ body {
   opacity: 0.7;
 }
 .ri-jp { font-size: 26px; line-height: 1.7; color: var(--ink); letter-spacing: 0.01em; }
-.mobile .ri-jp { font-size: 19px; line-height: 1.7; }
+@media (max-width: 820px) { .ri-jp { font-size: 19px; line-height: 1.7; } }
 .ri-trans {
   margin-top: 12px; padding-left: 4px;
   font-size: 15px; font-style: italic;
@@ -531,12 +593,13 @@ body {
 }
 .fa-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 24px;
+  width: 30px; height: 28px;
   background: transparent; border: none; color: var(--ink-faint);
-  cursor: pointer; border-radius: 2px;
+  cursor: pointer; border-radius: 3px;
   transition: all .12s;
   position: relative;
 }
+@media (max-width: 820px) { .fa-btn { width: 36px; height: 34px; } }
 .fa-btn:hover { background: var(--paper); color: var(--ink); }
 .fa-btn.fav.on { color: var(--seal); }
 .fa-btn.fav.on:hover { color: var(--seal-ink); background: var(--seal-glow); }
@@ -591,7 +654,16 @@ body {
   display: flex; justify-content: space-between; align-items: flex-start;
   gap: 10px;
   margin-bottom: 6px;
-  padding-right: 96px;
+  /* Right padding clears the absolutely-positioned `.float-actions`
+     strip so the PosPill column inside `.card-meta` doesn't slide
+     under the favourite / copy / share buttons. Math:
+        right offset (12) + strip width + breathing room.
+     Strip width = 3 buttons × 30px desktop / 36px mobile, plus 2px
+     of gap×2 and 2px of padding×2 and 2px border. */
+  padding-right: 124px;
+}
+@media (max-width: 820px) {
+  .card-head { padding-right: 140px; }
 }
 .card-headword { display: flex; flex-direction: column; gap: 3px; }
 .card-headword-jp { font-size: 28px; line-height: 1.25; color: var(--ink); font-weight: 500; }
@@ -677,13 +749,18 @@ body {
   font-family: var(--f-mono);
 }
 .conj-grid {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0;
   border: 1px solid var(--line); border-radius: 2px;
   overflow: hidden;
 }
 .conj-cell {
   padding: 6px 8px; border-right: 1px solid var(--line);
   background: var(--paper);
+  /* `min-width: 0` lets grid items shrink below their content size on
+     narrow phones; without it `repeat(5, 1fr)` blows past the sheet
+     width when forms like "negative-past" can't shrink. Wrap is fine. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .conj-cell:last-child { border-right: none; }
 .conj-form { font-family: var(--f-mono); font-size: 9px; color: var(--ink-faint); letter-spacing: 0.04em; text-transform: uppercase; }
@@ -889,6 +966,10 @@ body {
 .storage-bar {
   display: flex; align-items: center; gap: 12px;
   font-size: 11px;
+  /* Sits directly under `.set-data-grid` in the Settings → Data group;
+     the grid has no bottom margin so without this the meter butts up
+     against the action buttons. */
+  margin-top: 18px;
 }
 .sb-track {
   flex: 1; height: 4px; background: var(--paper-sink); border-radius: 2px; overflow: hidden;
@@ -938,18 +1019,55 @@ body {
   background: var(--paper-card);
   border-top: 1px solid var(--line);
   border-radius: 12px 12px 0 0;
-  padding: 14px 16px 20px;
+  /* No bottom padding — the sheet sits flush with the top edge of
+     `.btab` (its containing block is `.app-main`, which ends exactly
+     where the bottom tabs begin). The home-indicator safe area is
+     already handled by `.btab` below this surface, so an extra inset
+     here would just produce a visible empty band between the term
+     content and the tab bar. */
+  padding: 12px 16px 0;
   box-shadow: 0 -12px 32px rgba(0,0,0,0.10);
   z-index: 10;
-  max-height: 72%;
-  overflow-y: auto;
+  /* Near-full-height sheet — matches the reference design's `92%`. The
+     header sticks; `.sheet-body` is the scrolling region. Earlier this
+     was `max-height: 72%` which made the modal feel cramped, especially
+     for term cards with examples + conjugation tables. */
+  height: 92%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+/* Header row inside the sheet — drag handle centered, close button
+   pinned to the right of the same row. By living in its own row the
+   close never collides with the card's top-right `.float-actions`
+   strip below. `shrink: 0` keeps it from being squeezed when content
+   below wants more space. */
+.sheet-head {
+  position: relative;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 32px;
+  margin-bottom: 6px;
 }
 .sheet-handle {
   width: 36px; height: 4px;
   background: var(--ink-ghost);
   border-radius: 2px;
-  margin: 0 auto 12px;
 }
+.sheet-body {
+  /* The scrollable region. `min-height: 0` is what lets a flex child
+     actually scroll inside its parent — without it the child grows to
+     fit content and the sheet itself would scroll. `min-width: 0` lets
+     long inline content wrap instead of forcing horizontal overflow
+     (which used to manifest as a sideways drag of the whole modal). */
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.sheet-body > * { min-width: 0; max-width: 100%; }
 
 /* ─── Utility classes ──────────────────────────────────────────────── */
 .ink-faint { color: var(--ink-faint); }
@@ -966,17 +1084,17 @@ body {
   flex: 1 1 auto;
   min-height: 0;
 }
-.screen.desktop {
-  padding: 28px 36px 28px;
-  display: flex; flex-direction: column; gap: 22px;
-  overflow-y: auto;
-  height: 100%;
-}
-.screen.mobile {
+.screen {
   padding: 18px 16px 18px;
   display: flex; flex-direction: column; gap: 16px;
   overflow-y: auto;
   height: 100%;
+}
+@media (min-width: 821px) {
+  .screen {
+    padding: 28px 36px 28px;
+    gap: 22px;
+  }
 }
 
 .sc-head {
@@ -990,25 +1108,72 @@ body {
   margin: 0; font-weight: 500;
   color: var(--ink);
 }
-.mobile .sc-title { font-size: 22px; }
+@media (max-width: 820px) { .sc-title { font-size: 22px; } }
 .sc-sub { font-size: 11px; margin-top: 4px; letter-spacing: 0.02em; color: var(--ink-faint); }
 .sc-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
+/* Mobile screen-head: title stacks above the action row so the actions
+   get the full content width. On desktop the original side-by-side
+   layout (title left, actions right) is preserved. */
+@media (max-width: 820px) {
+  .sc-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .sc-head-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+  /* History header: SearchField fills available width; the Clear-all
+     button keeps its natural size beside it. The internal input has a
+     fixed 140px width by default — undo that so it can flex. */
+  .sc-head-actions .search-field { flex: 1 1 auto; min-width: 0; }
+  .sc-head-actions .search-field input { width: 100%; min-width: 0; }
+  /* Favorites header opts in with `.sc-head-actions-equal` to get a
+     3-equal-column row instead of the default flex layout. Buttons
+     centre their labels and shrink their font so all three fit. */
+  .sc-head-actions-equal {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .sc-head-actions-equal > .btn-quiet {
+    width: 100%;
+    justify-content: center;
+    padding: 9px 8px;
+    font-size: 11.5px;
+  }
+}
+
 /* ─── Read screen ──────────────────────────────────────────────────── */
 /* The whole read screen scrolls as one column so the breakdown moves with
-   the terms list. The input on top stays put via `position: sticky`. */
-.read.desktop { padding: 0; gap: 0; overflow-y: auto; overflow-x: hidden; height: 100%; display: flex; flex-direction: column; }
-.read.desktop > * { padding-left: 36px; padding-right: 36px; }
-.read.mobile { padding: 0; gap: 0; overflow-y: auto; overflow-x: hidden; height: 100%; display: flex; flex-direction: column; min-width: 0; }
-.read.mobile > * { padding-left: 16px; padding-right: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
+   the terms list. The input on top stays put via `position: sticky`.
+   Layout is viewport-driven, NOT keyed off a `.mobile` / `.desktop` JSX
+   class — that's what avoids the brief desktop layout flash on mobile
+   refresh. The screen's `mobile`-prop value is still used for JS-only
+   behaviors (sheet vs scroll) where the difference is unavoidable. */
+.read {
+  padding: 0; gap: 0;
+  overflow-y: auto; overflow-x: hidden;
+  height: 100%;
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.read > * { padding-left: 16px; padding-right: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
+@media (min-width: 821px) {
+  .read > * { padding-left: 36px; padding-right: 36px; max-width: none; }
+}
 
 .read-input {
-  padding-top: 24px; padding-bottom: 18px;
+  padding-top: 10px; padding-bottom: 18px;
   border-bottom: 1px solid var(--line);
   background: var(--paper);
   position: relative;
 }
-.read.desktop .read-input { padding-top: 28px; padding-bottom: 20px; }
+@media (min-width: 821px) {
+  .read-input { padding-top: 28px; padding-bottom: 20px; }
+}
 .read-input.sticky { position: sticky; top: 0; z-index: 5; }
 .ri-head {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -1019,7 +1184,7 @@ body {
 .ri-meta { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .ri-title { font-family: var(--f-display); font-size: 14px; color: var(--ink-soft); letter-spacing: 0.01em; }
 .ri-actions { display: flex; gap: 4px; flex-wrap: wrap; }
-.mobile .ri-trans { font-size: 13px; }
+@media (max-width: 820px) { .ri-trans { font-size: 13px; } }
 
 .ri-textarea {
   display: block; width: 100%;
@@ -1028,7 +1193,7 @@ body {
   letter-spacing: 0.01em; outline: none;
   min-height: 1.7em;
 }
-.mobile .ri-textarea { font-size: 19px; }
+@media (max-width: 820px) { .ri-textarea { font-size: 19px; } }
 
 /* Breakdown */
 .read-breakdown {
@@ -1050,8 +1215,10 @@ body {
      by the horizontal-scroll container. */
   padding: 10px 2px 10px;
 }
-.mobile .chip { padding: 12px 8px 4px; min-width: 36px; }
-.mobile .chip-surface { font-size: 15px; }
+@media (max-width: 820px) {
+  .chip { padding: 12px 8px 4px; min-width: 36px; }
+  .chip-surface { font-size: 15px; }
+}
 
 /* Cards section */
 .read-cards { padding-top: 20px; padding-bottom: 28px; }
@@ -1063,7 +1230,7 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
-.mobile .rc-grid { grid-template-columns: 1fr; gap: 12px; }
+@media (max-width: 820px) { .rc-grid { grid-template-columns: 1fr; gap: 12px; } }
 
 /* Two-column masonry: each column flows independently so unequal card
    heights don't leave gaps. Even indexes flow into the left column, odd
@@ -1088,7 +1255,8 @@ body {
   background: var(--paper-card);
 }
 
-/* Tategaki marginalia */
+/* Tategaki marginalia — desktop-only decorative element. Hidden at mobile
+   widths so it doesn't briefly appear before useIsMobile() unmounts it. */
 .margin-tate {
   position: absolute; right: 8px; top: 110px; bottom: 30px;
   font-size: 11px; line-height: 2.1; letter-spacing: 0.4em;
@@ -1099,6 +1267,7 @@ body {
   font-family: var(--f-jp);
   font-weight: 300;
 }
+@media (max-width: 820px) { .margin-tate { display: none; } }
 
 /* ─── Favorites screen ─────────────────────────────────────────────── */
 .fav-grid {
@@ -1106,7 +1275,7 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
-.mobile .fav-grid { grid-template-columns: 1fr; gap: 12px; }
+@media (max-width: 820px) { .fav-grid { grid-template-columns: 1fr; gap: 12px; } }
 .fav-empty {
   padding: 36px 24px; text-align: center;
   font-family: var(--f-display); font-style: italic;
@@ -1117,13 +1286,15 @@ body {
 
 /* ─── Settings ─────────────────────────────────────────────────────── */
 .set-groups { display: flex; flex-direction: column; gap: 26px; padding-bottom: 24px; }
-.mobile .set-group { padding: 16px 14px; }
-.mobile .set-row { grid-template-columns: 1fr; gap: 8px; }
 .set-data-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
   margin-top: 4px;
 }
-.mobile .set-data-grid { grid-template-columns: 1fr; }
+@media (max-width: 820px) {
+  .set-group { padding: 16px 14px; }
+  .set-row { grid-template-columns: 1fr; gap: 8px; }
+  .set-data-grid { grid-template-columns: 1fr; }
+}
 .set-about-card {
   display: flex; gap: 18px; align-items: center;
   padding: 22px 24px;
@@ -1157,11 +1328,14 @@ body {
 }
 [data-theme="dark"] .sheet-backdrop { background: rgba(0,0,0,0.5); }
 .sheet-close {
-  position: absolute; top: 12px; right: 12px;
-  width: 28px; height: 28px; border-radius: 14px;
+  position: absolute; top: 50%; right: 0; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 16px;
   background: var(--paper-sink); border: 1px solid var(--line);
   color: var(--ink-soft); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
+  /* Above the term card's `.float-actions` (z-index: 2) — defensive,
+     since they live in the row below this header. */
+  z-index: 3;
 }
 
 /* ─── Confirmation prompt inside data-action buttons ───────────────── */
