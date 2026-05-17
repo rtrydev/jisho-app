@@ -3,7 +3,6 @@ import { FloatingActions } from "./FloatingActions";
 import { ExampleList, type ExampleSentence } from "./Example";
 import { ConjugationGrid, type Conjugation } from "./ConjugationGrid";
 import { Tag, PosPill } from "./Tag";
-import * as Icon from "./Icon";
 
 export type TermCardData = {
   id: string;
@@ -26,7 +25,6 @@ export function TermCard({
   favorite,
   onToggleFavorite,
   onCopy,
-  onCopyGloss,
   onShare,
   compact = false,
   highlight = false,
@@ -36,7 +34,6 @@ export function TermCard({
   favorite?: boolean;
   onToggleFavorite?: () => void;
   onCopy?: () => void;
-  onCopyGloss?: (gloss: string, index: number) => void;
   onShare?: () => void;
   compact?: boolean;
   highlight?: boolean;
@@ -97,14 +94,6 @@ export function TermCard({
           <li key={i}>
             <span className="g-num">{i + 1}</span>
             <span className="g-text">{g}</span>
-            <button
-              type="button"
-              className="g-copy"
-              aria-label="Copy gloss"
-              onClick={() => onCopyGloss?.(g, i)}
-            >
-              <Icon.Copy size={10} />
-            </button>
           </li>
         ))}
       </ol>

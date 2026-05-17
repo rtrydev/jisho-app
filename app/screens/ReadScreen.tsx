@@ -17,7 +17,7 @@ import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
 import { DEMO_SOURCE, isDemoSentence } from "../lib/engine/demoResources";
-import { formatAllResults, formatGloss, writeClipboard } from "../lib/copy";
+import { formatAllResults, writeClipboard } from "../lib/copy";
 import { buildShareUrl, writeQueryParam } from "../lib/share";
 import { useAnalyzer } from "../providers/EngineProvider";
 import { useSettings } from "../providers/SettingsProvider";
@@ -177,15 +177,6 @@ export function ReadScreen({
     [showToast],
   );
 
-  const onCardCopyGloss = useCallback(
-    (g: string) => {
-      void writeClipboard(formatGloss(g, settings.copyFormat)).then((ok) => {
-        if (ok) showToast({ message: "Gloss copied", tone: "success" });
-      });
-    },
-    [settings.copyFormat, showToast],
-  );
-
   const onCardFavorite = useCallback(
     (card: TermCardData) => {
       const term = card.surface ?? card.head;
@@ -339,7 +330,6 @@ export function ReadScreen({
                   favorite={isFavorite(c.type, dictKeyOf(c))}
                   onToggleFavorite={() => onCardFavorite(c)}
                   onCopy={() => onCardCopy(c)}
-                  onCopyGloss={onCardCopyGloss}
                   onShare={() => onCardShare(c)}
                   highlight={pulseId === c.id}
                 />
@@ -363,9 +353,6 @@ export function ReadScreen({
                       favorite={isFavorite(c.type, dictKeyOf(c))}
                       onToggleFavorite={() => onCardFavorite(c)}
                       onCopy={() => onCardCopy(c)}
-                      onCopyGloss={(g) =>
-                        void writeClipboard(formatGloss(g, settings.copyFormat))
-                      }
                       onShare={() => onCardShare(c)}
                       highlight={pulseId === c.id}
                     />
@@ -398,7 +385,6 @@ export function ReadScreen({
               favorite={isFavorite(sheetCard.type, dictKeyOf(sheetCard))}
               onToggleFavorite={() => onCardFavorite(sheetCard)}
               onCopy={() => onCardCopy(sheetCard)}
-              onCopyGloss={onCardCopyGloss}
               onShare={() => onCardShare(sheetCard)}
             />
           </Sheet>

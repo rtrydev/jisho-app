@@ -724,13 +724,6 @@ body {
   text-align: center;
 }
 .g-text { line-height: 1.45; }
-.g-copy {
-  background: transparent; border: none; color: var(--ink-ghost);
-  cursor: pointer; opacity: 0; transition: opacity .14s;
-  padding: 4px;
-}
-.glosses li:hover .g-copy { opacity: 0.7; }
-.g-copy:hover { color: var(--seal) !important; opacity: 1 !important; }
 
 .card-notes {
   margin: 12px 0 0; padding: 10px 12px 10px 14px;

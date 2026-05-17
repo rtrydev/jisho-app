@@ -56,14 +56,12 @@ describe("TermCard — vocab", () => {
     expect(reading.textContent?.toLowerCase()).toContain("sensei");
   });
 
-  it("renders each gloss with a numbered marker and a copy button", () => {
+  it("renders each gloss with a numbered marker", () => {
     render(<TermCard card={vocab} />);
     const items = document.querySelectorAll(".glosses li");
     expect(items).toHaveLength(2);
     expect(items[0]).toHaveTextContent("1");
     expect(items[0]).toHaveTextContent("teacher; instructor");
-    const copyBtns = screen.getAllByRole("button", { name: /copy gloss/i });
-    expect(copyBtns).toHaveLength(2);
   });
 
   it("does NOT render formula / explanation slots for vocab", () => {
@@ -89,15 +87,6 @@ describe("TermCard — vocab", () => {
     render(<TermCard card={vocab} favorite />);
     const btn = screen.getByRole("button", { name: /remove favorite/i });
     expect(btn).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("onCopyGloss is fired per-gloss with the gloss text and index", async () => {
-    const user = userEvent.setup();
-    const calls: Array<[string, number]> = [];
-    render(<TermCard card={vocab} onCopyGloss={(g, i) => calls.push([g, i])} />);
-    const buttons = screen.getAllByRole("button", { name: /copy gloss/i });
-    await user.click(buttons[1]);
-    expect(calls).toEqual([["(suffix) respectful title", 1]]);
   });
 
   it("surface override is shown when it differs from the head", () => {

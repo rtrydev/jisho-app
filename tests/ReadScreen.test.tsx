@@ -98,19 +98,6 @@ describe("Read screen", () => {
     expect(await screen.findByText(/link copied/i)).toBeInTheDocument();
   });
 
-  it("Copy gloss copies the individual gloss line, respecting copy format", async () => {
-    const { user } = renderApp();
-    const card = await findCard("v-先生");
-    const glossCopyButtons = within(card).getAllByRole("button", { name: /copy gloss/i });
-    expect(glossCopyButtons.length).toBeGreaterThan(0);
-
-    await user.click(glossCopyButtons[0]);
-
-    const clip = getClipboardWriteText();
-    expect(clip).toHaveBeenCalledTimes(1);
-    expect(clip.mock.calls[0][0]).toBe("- teacher; instructor; master");
-  });
-
   it("Collapsing the sticky input hides the textarea while keeping the breakdown visible", async () => {
     const { user } = renderApp();
     const textarea = await screen.findByPlaceholderText(/日本語をペースト/);

@@ -1,11 +1,6 @@
 import type { TermCardData } from "../components/TermCard";
 import type { CopyFormat } from "./settings";
 
-export function formatGloss(gloss: string, format: CopyFormat): string {
-  if (format === "markdown") return `- ${gloss}`;
-  return gloss;
-}
-
 export function formatCard(card: TermCardData, format: CopyFormat): string {
   if (format === "markdown") {
     const lines: string[] = [];

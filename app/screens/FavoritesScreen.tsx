@@ -8,7 +8,7 @@ import { TermCard } from "../components/TermCard";
 import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
-import { formatGloss, writeClipboard } from "../lib/copy";
+import { writeClipboard } from "../lib/copy";
 import {
   exportJson,
   exportMarkdown,
@@ -17,14 +17,12 @@ import {
 } from "../lib/favorites";
 import { buildShareUrl } from "../lib/share";
 import { useAnalyzer } from "../providers/EngineProvider";
-import { useSettings } from "../providers/SettingsProvider";
 import { useUserData } from "../providers/UserDataProvider";
 
 type Tab = "vocab" | "grammar";
 
 export function FavoritesScreen() {
   const mobile = useIsMobile();
-  const { settings } = useSettings();
   const { favorites, toggleFavorite, importFavorites } = useUserData();
   const { getEntry } = useAnalyzer();
   const { showToast } = useToast();
@@ -63,15 +61,6 @@ export function FavoritesScreen() {
       });
     },
     [showToast],
-  );
-
-  const copyGloss = useCallback(
-    (g: string) => {
-      void writeClipboard(formatGloss(g, settings.copyFormat)).then((ok) => {
-        if (ok) showToast({ message: "Gloss copied", tone: "success" });
-      });
-    },
-    [settings.copyFormat, showToast],
   );
 
   const handleToggleFavorite = useCallback(
@@ -213,7 +202,6 @@ export function FavoritesScreen() {
                 favorite
                 onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
                 onCopy={() => copyTerm(term)}
-                onCopyGloss={copyGloss}
                 onShare={() => copyShareLink(term)}
                 compact={mobile}
               />
@@ -233,7 +221,6 @@ export function FavoritesScreen() {
                     favorite
                     onToggleFavorite={() => handleToggleFavorite(card.type, dictKeyOf(card), term)}
                     onCopy={() => copyTerm(term)}
-                    onCopyGloss={copyGloss}
                     onShare={() => copyShareLink(term)}
                     compact={mobile}
                   />
