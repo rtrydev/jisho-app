@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell, type ScreenId } from "./components/AppShell";
 import { ToastProvider } from "./components/Toast";
 import { ReadScreen } from "./screens/ReadScreen";
@@ -11,26 +11,24 @@ import { EngineProvider } from "./providers/EngineProvider";
 import { SettingsProvider } from "./providers/SettingsProvider";
 import { UserDataProvider } from "./providers/UserDataProvider";
 import { historyId } from "./lib/history";
-import { clearFragment, readFragmentQuery } from "./lib/share";
+import { readQueryParam } from "./lib/share";
 import type { EngineResources } from "./lib/analyzer";
 
-/** Read + consume any `#q1:…` deep link exactly once, synchronously. */
-function consumeFragmentQueryOnce(): string | null {
-  if (typeof window === "undefined") return null;
-  const fromFragment = readFragmentQuery();
-  if (fromFragment) clearFragment();
-  return fromFragment;
-}
-
 function AppRoot() {
-  const [readText, setReadText] = useState<string | undefined>(() => {
-    const fromFragment = consumeFragmentQueryOnce();
-    return fromFragment ?? undefined;
-  });
+  const [readText, setReadText] = useState<string | undefined>(undefined);
   const [screen, setScreen] = useState<ScreenId>("read");
-  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(() =>
-    readText ? historyId(readText) : null,
-  );
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+
+  // Seed the query from `?q=` on first mount. Initial state stays empty
+  // so SSR-rendered HTML matches the first client render — no hydration
+  // mismatch — and we pull the URL value in afterwards.
+  useEffect(() => {
+    const fromUrl = readQueryParam();
+    if (!fromUrl) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is only readable on the client; doing this in a lazy useState initializer would cause a server/client hydration mismatch.
+    setReadText(fromUrl);
+    setActiveHistoryId(historyId(fromUrl));
+  }, []);
 
   const openInRead = useCallback((text: string) => {
     setReadText(text);

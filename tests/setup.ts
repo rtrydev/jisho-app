@@ -79,8 +79,8 @@ beforeEach(() => {
   root.dataset.furigana = "always";
   root.dataset.jpScale = "M";
 
-  // Reset URL hash so share-fragment consumption doesn't leak between tests.
-  if (window.location.hash) {
+  // Reset URL search + hash so ?q= consumption doesn't leak between tests.
+  if (window.location.search || window.location.hash) {
     window.history.replaceState(null, "", window.location.pathname);
   }
 });

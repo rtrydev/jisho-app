@@ -83,7 +83,7 @@ describe("Read screen", () => {
     expect(written).toMatch(/先生/);
   });
 
-  it("Share copies a self-contained URL fragment of the current text", async () => {
+  it("Share copies a ?q= URL of the current text", async () => {
     const { user } = renderApp();
     await findCard("v-先生");
 
@@ -92,7 +92,8 @@ describe("Read screen", () => {
     const clip = getClipboardWriteText();
     expect(clip).toHaveBeenCalled();
     const url = clip.mock.calls.at(-1)?.[0] ?? "";
-    expect(url).toMatch(/#q1:/);
+    expect(url).toMatch(/\?q=/);
+    expect(url).toContain(encodeURIComponent(DEMO_SENTENCE));
     // Inline confirmation appears on the share control.
     expect(await screen.findByText(/link copied/i)).toBeInTheDocument();
   });

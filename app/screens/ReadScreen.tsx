@@ -18,7 +18,7 @@ import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
 import { DEMO_SOURCE, isDemoSentence } from "../lib/engine/demoResources";
 import { formatAllResults, formatGloss, writeClipboard } from "../lib/copy";
-import { buildShareUrl } from "../lib/share";
+import { buildShareUrl, writeQueryParam } from "../lib/share";
 import { useAnalyzer } from "../providers/EngineProvider";
 import { useSettings } from "../providers/SettingsProvider";
 import { useUserData } from "../providers/UserDataProvider";
@@ -59,6 +59,12 @@ export function ReadScreen({
       recordHistory(text, out.cardItems.length);
     }
   }, [text, run, recordHistory]);
+
+  // Mirror `text` back into `?q=` so the current query is shareable / refreshable.
+  // `replaceState` (not `pushState`) — a long search shouldn't fill the back stack.
+  useEffect(() => {
+    writeQueryParam(text);
+  }, [text]);
 
   useEffect(() => {
     if (status.kind === "ready" && result.text && result.cardItems.length > 0) {
