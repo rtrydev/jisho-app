@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# data pipeline sources (operator-supplied; see data/README.md)
+/data/JMdict_e.gz
+/data/sentence_pairs.tsv
+/data/grammar.zip
+
+# v1 snapshot — kept locally for reference, not redistributed
+/archive/
