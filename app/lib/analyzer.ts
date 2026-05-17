@@ -1,81 +1,63 @@
-// Engine boundary. The real Kuromoji + IPADIC pipeline (preserved byte-for-byte
-// from v1) plugs in here; until that integration lands, this stub recognises the
-// pre-baked Sōseki sample and otherwise returns an empty result.
+// Public engine boundary. Consumers MUST go through this module — never reach
+// into `app/lib/engine/` internals. The provider layer wraps `analyze` and
+// `loadEngineResources` behind a single React context (`useAnalyzer`).
 //
-// Consumers MUST go through `useAnalyzer` — never reach into engine internals.
+// The engine itself is byte-for-byte the v1 logic — kuromoji morphology, a
+// 6-token grammar window, kana→kanji fallback, and an IGNORED_POS dedup
+// filter. The pipeline that produces dictionary.json.gz + grammar.json.gz is
+// the only thing that changed.
 
-import type { BreakdownToken } from "../components/BreakdownChip";
 import type { TermCardData } from "../components/TermCard";
+import { analyze as engineAnalyze, IGNORED_POS } from "./engine/analyze";
 import {
-  sentence as demoSentence,
-  english as demoEnglish,
-  source as demoSource,
-  tokens as demoTokens,
-  cards as demoCards,
-} from "./demoData";
+  lookupGrammarCard,
+  lookupVocabCard,
+} from "./engine/cards";
+import type { EngineResources } from "./engine/types";
 
 export type AnalysisStatus =
   | { kind: "idle" }
-  | { kind: "loading"; step: string }
+  | { kind: "loading"; step: string; progress: number }
   | { kind: "ready" }
   | { kind: "empty" }
   | { kind: "error"; message: string };
 
 export type AnalysisResult = {
   text: string;
-  tokens: BreakdownToken[];
+  tokens: import("../components/BreakdownChip").BreakdownToken[];
   cardItems: TermCardData[];
   english?: string;
   source?: string;
 };
 
-const EMPTY: AnalysisResult = { text: "", tokens: [], cardItems: [] };
+export const EMPTY_RESULT: AnalysisResult = {
+  text: "",
+  tokens: [],
+  cardItems: [],
+};
 
-function normalize(s: string): string {
-  return s.replace(/\s+/g, "").trim();
+export type { EngineResources };
+export { IGNORED_POS };
+
+export function analyze(resources: EngineResources, text: string): AnalysisResult {
+  return engineAnalyze(resources, text);
 }
 
-export function isEngineReady(): boolean {
-  return true; // stub: always "ready"
-}
-
-export function analyze(text: string): AnalysisResult {
-  const trimmed = text.trim();
-  if (!trimmed) return { ...EMPTY, text: "" };
-
-  if (normalize(trimmed) === normalize(demoSentence)) {
-    return {
-      text: trimmed,
-      tokens: demoTokens,
-      cardItems: demoCards,
-      english: demoEnglish,
-      source: demoSource,
-    };
-  }
-
-  // Unknown text: surface the input as a single chip so the UI still composes.
-  // A future Kuromoji integration replaces this branch with real tokenisation.
-  const tokens: BreakdownToken[] = Array.from(trimmed).map((ch) => ({
-    surface: ch,
-    pos: /[぀-ヿ]/.test(ch)
-      ? "kana"
-      : /[一-鿿]/.test(ch)
-        ? "kanji"
-        : "punct",
-  }));
-  return { text: trimmed, tokens, cardItems: [] };
-}
-
+/** Re-resolve a stored favorite into a renderable TermCard against live
+ *  resources. Returns null if the resources don't have the entry — favorites
+ *  are *references*, not snapshots, so a swapped-out grammar bank can legally
+ *  leave a favorite orphaned. */
 export function getDictionaryEntry(
+  resources: EngineResources,
   type: "vocab" | "grammar",
   dictKey: string,
 ): TermCardData | null {
-  const prefix = type === "vocab" ? "v-" : "g-";
-  return demoCards.find((c) => c.type === type && c.id === prefix + dictKey) ?? null;
+  if (type === "vocab") return lookupVocabCard(resources.dictionary, dictKey);
+  return lookupGrammarCard(resources.grammar, dictKey);
 }
 
-/** Stable dictKey for a card. The real engine should produce dictKey for each
- *  unified token; here we strip the "v-"/"g-" demo prefix. */
+/** Stable dictKey for a card. The id format is `<v|g>-<dictKey>` so we can
+ *  strip the two-char prefix unambiguously. */
 export function dictKeyOf(card: TermCardData): string {
-  return card.id.replace(/^[vg]-/, "");
+  return card.id.slice(2);
 }

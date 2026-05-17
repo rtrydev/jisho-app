@@ -1,12 +1,16 @@
 import { render, waitFor, type RenderResult } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { JishoApp } from "../app/JishoApp";
+import {
+  DEMO_SENTENCE as ENGINE_DEMO_SENTENCE,
+  demoResources,
+} from "../app/lib/engine/demoResources";
 
-export const DEMO_SENTENCE = "私はその人を常に先生と呼んでいた。";
+export const DEMO_SENTENCE = ENGINE_DEMO_SENTENCE;
 
 export function renderApp(): { user: UserEvent; result: RenderResult } {
   const user = userEvent.setup();
-  const result = render(<JishoApp />);
+  const result = render(<JishoApp engineResources={demoResources} />);
   return { user, result };
 }
 

@@ -11,7 +11,7 @@ async function toggleFavoriteOn(cardId: string) {
 describe("Favorites screen", () => {
   it("starts empty and prompts the user to favorite from Read", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei"); // ensure analyser warm
+    await findCard("v-先生"); // ensure analyser warm
     await navigateTo(user, "Favorites");
 
     await screen.findByText("Favorites", { selector: ".sc-title" });
@@ -20,14 +20,14 @@ describe("Favorites screen", () => {
 
   it("toggling a vocab card on Read makes it appear on the Vocabulary tab", async () => {
     const { user } = renderApp();
-    const favBtn = await toggleFavoriteOn("v-sensei");
+    const favBtn = await toggleFavoriteOn("v-先生");
     await user.click(favBtn);
 
     await navigateTo(user, "Favorites");
     await screen.findByText("Favorites", { selector: ".sc-title" });
 
     // Vocabulary tab is default; the 先生 card is rendered live from the dict.
-    await findCard("v-sensei");
+    await findCard("v-先生");
     expect(screen.getByRole("radio", { name: /vocabulary/i })).toHaveAttribute(
       "aria-checked",
       "true",
@@ -37,29 +37,29 @@ describe("Favorites screen", () => {
   it("Grammar tab filters to grammar favorites only", async () => {
     const { user } = renderApp();
     // Favorite one vocab + one grammar card.
-    await user.click(await toggleFavoriteOn("v-sensei"));
-    await user.click(await toggleFavoriteOn("g-toyobu"));
+    await user.click(await toggleFavoriteOn("v-先生"));
+    await user.click(await toggleFavoriteOn("g-ていた"));
 
     await navigateTo(user, "Favorites");
-    await findCard("v-sensei"); // initially vocab tab
+    await findCard("v-先生"); // initially vocab tab
 
     // Switch to Grammar.
     await user.click(screen.getByRole("radio", { name: /grammar/i }));
 
-    expect(queryCard("v-sensei")).toBeNull();
-    await findCard("g-toyobu");
+    expect(queryCard("v-先生")).toBeNull();
+    await findCard("g-ていた");
   });
 
   it("toggling off from the Favorites screen removes the card live", async () => {
     const { user } = renderApp();
-    await user.click(await toggleFavoriteOn("v-sensei"));
+    await user.click(await toggleFavoriteOn("v-先生"));
     await navigateTo(user, "Favorites");
-    const card = await findCard("v-sensei");
+    const card = await findCard("v-先生");
 
     const remove = within(card).getByRole("button", { name: /remove favorite/i });
     await user.click(remove);
 
-    await waitFor(() => expect(queryCard("v-sensei")).toBeNull());
+    await waitFor(() => expect(queryCard("v-先生")).toBeNull());
     expect(screen.getByText(/no vocab favorites yet/i)).toBeInTheDocument();
   });
 
@@ -83,7 +83,7 @@ describe("Favorites screen", () => {
     });
 
     const { user } = renderApp();
-    await user.click(await toggleFavoriteOn("v-sensei"));
+    await user.click(await toggleFavoriteOn("v-先生"));
     await navigateTo(user, "Favorites");
     await user.click(screen.getByRole("button", { name: /export json/i }));
 
@@ -95,12 +95,12 @@ describe("Favorites screen", () => {
     const text = await blob.text();
     const parsed = JSON.parse(text);
     expect(parsed.schemaVersion).toBe(1);
-    expect(parsed.entries[0]).toMatchObject({ type: "vocab", dictKey: "sensei" });
+    expect(parsed.entries[0]).toMatchObject({ type: "vocab", dictKey: "先生" });
   });
 
   it("Import merges a JSON bundle and the entries become visible", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
     await navigateTo(user, "Favorites");
 
     // Build an in-memory JSON bundle and feed it to the hidden <input type=file>.
@@ -108,9 +108,9 @@ describe("Favorites screen", () => {
       schemaVersion: 1,
       entries: [
         {
-          id: "vocab:sensei",
+          id: "vocab:先生",
           type: "vocab",
-          dictKey: "sensei",
+          dictKey: "先生",
           surface: "先生",
           addedAt: Date.now(),
         },
@@ -127,12 +127,12 @@ describe("Favorites screen", () => {
     await user.upload(fileInput, file);
 
     // Card should appear without us touching the Read screen.
-    await findCard("v-sensei");
+    await findCard("v-先生");
   });
 
   it("favorites survive a remount (persisted through localStorage)", async () => {
     const { user, result } = renderApp();
-    await user.click(await toggleFavoriteOn("v-sensei"));
+    await user.click(await toggleFavoriteOn("v-先生"));
 
     // Tear down + re-render. Reactive stores are NOT reset here (beforeEach
     // does that between tests, not mid-test), so a fresh mount sees the
@@ -141,6 +141,6 @@ describe("Favorites screen", () => {
 
     renderApp();
     await navigateTo(user, "Favorites");
-    await findCard("v-sensei");
+    await findCard("v-先生");
   });
 });

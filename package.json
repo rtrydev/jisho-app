@@ -8,10 +8,13 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "node scripts/sync-kuromoji-dict.mjs"
   },
   "dependencies": {
+    "kuromoji": "^0.1.2",
     "next": "16.2.6",
+    "pako": "^2.1.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -21,6 +24,7 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
+    "@types/pako": "^2.0.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.0.2",

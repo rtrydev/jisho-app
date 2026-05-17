@@ -7,7 +7,7 @@ describe("History screen", () => {
     const { user } = renderApp();
 
     // Wait for the analyser to have produced results.
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     await navigateTo(user, "History");
     await screen.findByText("History", { selector: ".sc-title" });
@@ -22,7 +22,7 @@ describe("History screen", () => {
 
   it("filter input narrows visible rows by substring of the stored text", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     await navigateTo(user, "History");
     await screen.findByText("History", { selector: ".sc-title" });
@@ -42,7 +42,7 @@ describe("History screen", () => {
 
   it("clicking a history row replays the analysis on the Read screen", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     // Replace the textarea with something the analyser can't handle, then
     // navigate to History and replay the seeded entry.
@@ -58,14 +58,14 @@ describe("History screen", () => {
     await user.click(replayBtn);
 
     // We're back on Read with the demo sentence and full term cards.
-    await findCard("v-sensei");
+    await findCard("v-先生");
     const ta = await screen.findByPlaceholderText(/日本語をペースト/);
     expect(ta).toHaveValue(DEMO_SENTENCE);
   });
 
   it("deleting a row removes it without affecting other entries", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     // Record a second analysis (an unknown sentence: only records when it
     // produces cards, so we need another known sentence — there is none in
@@ -85,7 +85,7 @@ describe("History screen", () => {
 
   it("Clear all is gated by an inline confirmation prompt", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
     await navigateTo(user, "History");
 
     await user.click(screen.getByRole("button", { name: /clear all/i }));

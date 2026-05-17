@@ -4,7 +4,7 @@ import { findCard, navigateTo, renderApp } from "./helpers";
 import { getClipboardWriteText } from "./setup";
 
 async function openSettings(user: ReturnType<typeof renderApp>["user"]) {
-  await findCard("v-sensei"); // wait for the engine warmup
+  await findCard("v-先生"); // wait for the engine warmup
   await navigateTo(user, "Settings");
   await screen.findByText("Settings", { selector: ".sc-title" });
 }
@@ -84,7 +84,7 @@ describe("Settings screen", () => {
 
     // Back to Read and copy all.
     await navigateTo(user, "Read");
-    await findCard("v-sensei");
+    await findCard("v-先生");
     await user.click(screen.getByRole("button", { name: /copy all results/i }));
 
     const clip = getClipboardWriteText();
@@ -121,7 +121,7 @@ describe("Settings screen", () => {
   it("Clear all data prompts for confirmation and wipes history + favorites", async () => {
     const { user } = renderApp();
     // Seed some user data first.
-    const card = await findCard("v-sensei");
+    const card = await findCard("v-先生");
     await user.click(within(card).getByRole("button", { name: /add favorite/i }));
 
     await navigateTo(user, "Settings");

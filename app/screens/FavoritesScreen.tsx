@@ -6,7 +6,7 @@ import { Hanko } from "../components/Hanko";
 import { Segmented } from "../components/Segmented";
 import { TermCard } from "../components/TermCard";
 import { useIsMobile } from "../components/AppShell";
-import { dictKeyOf, getDictionaryEntry } from "../lib/analyzer";
+import { dictKeyOf } from "../lib/analyzer";
 import { formatCard, formatGloss, writeClipboard } from "../lib/copy";
 import {
   exportJson,
@@ -15,6 +15,7 @@ import {
   type FavoriteType,
 } from "../lib/favorites";
 import { buildShareUrl } from "../lib/share";
+import { useAnalyzer } from "../providers/EngineProvider";
 import { useSettings } from "../providers/SettingsProvider";
 import { useUserData } from "../providers/UserDataProvider";
 
@@ -24,6 +25,7 @@ export function FavoritesScreen() {
   const mobile = useIsMobile();
   const { settings } = useSettings();
   const { favorites, toggleFavorite, importFavorites } = useUserData();
+  const { getEntry } = useAnalyzer();
   const [tab, setTab] = useState<Tab>("vocab");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,19 +35,17 @@ export function FavoritesScreen() {
   const shown = tab === "vocab" ? vocab : grammar;
 
   // Re-resolve full cards live from the dictionary.
-  const cards = useMemo(
-    () =>
-      shown
-        .map((e) => ({
-          entry: e,
-          card: getDictionaryEntry(e.type, e.dictKey),
-        }))
-        .filter(
-          (x): x is { entry: typeof shown[number]; card: NonNullable<ReturnType<typeof getDictionaryEntry>> } =>
-            x.card !== null,
-        ),
-    [shown],
-  );
+  const cards = useMemo(() => {
+    const out: Array<{
+      entry: (typeof shown)[number];
+      card: NonNullable<ReturnType<typeof getEntry>>;
+    }> = [];
+    for (const e of shown) {
+      const card = getEntry(e.type, e.dictKey);
+      if (card) out.push({ entry: e, card });
+    }
+    return out;
+  }, [shown, getEntry]);
 
   const onExport = useCallback(() => {
     const md = exportMarkdown(favorites);

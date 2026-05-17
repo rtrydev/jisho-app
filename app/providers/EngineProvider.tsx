@@ -4,57 +4,140 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import type { TermCardData } from "../components/TermCard";
 import {
   analyze,
-  isEngineReady,
+  EMPTY_RESULT,
+  getDictionaryEntry as resolveEntry,
   type AnalysisResult,
   type AnalysisStatus,
+  type EngineResources,
 } from "../lib/analyzer";
 
 export type EngineContextValue = {
   status: AnalysisStatus;
   result: AnalysisResult;
-  /** Analyse `text` and update `result`. Returns the new result synchronously. */
+  /** Analyse `text`. While the engine is loading this is a no-op; the latest
+   *  request is queued and replayed once resources arrive. Returns the result
+   *  if it can be computed synchronously, otherwise EMPTY_RESULT. */
   run: (text: string) => AnalysisResult;
   clear: () => void;
+  /** Look up a stored favorite against the live dictionary. Returns null when
+   *  the engine isn't ready yet, or when the key isn't in the current
+   *  resources. */
+  getEntry: (
+    type: "vocab" | "grammar",
+    dictKey: string,
+  ) => TermCardData | null;
 };
 
 const Ctx = createContext<EngineContextValue | null>(null);
 
-const EMPTY: AnalysisResult = { text: "", tokens: [], cardItems: [] };
+export function EngineProvider({
+  children,
+  resources: injected,
+}: {
+  children: React.ReactNode;
+  /** Inject pre-built resources to bypass the async loader — for tests and
+   *  showcase fixtures. When omitted, the provider fetches the real assets on
+   *  mount. */
+  resources?: EngineResources;
+}) {
+  const [resources, setResources] = useState<EngineResources | null>(
+    injected ?? null,
+  );
+  const [status, setStatus] = useState<AnalysisStatus>(() =>
+    injected
+      ? { kind: "idle" }
+      : { kind: "loading", step: "Starting…", progress: 0 },
+  );
+  const [result, setResult] = useState<AnalysisResult>(EMPTY_RESULT);
+  const pendingText = useRef<string | null>(null);
 
-function initialStatus(): AnalysisStatus {
-  return isEngineReady() ? { kind: "ready" } : { kind: "loading", step: "warming engine" };
-}
+  // Kick off the async load when no resources were injected. Injected
+  // resources are read once from the initial state — they aren't expected to
+  // change across renders.
+  useEffect(() => {
+    if (injected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { loadEngineResources } = await import("../lib/engine/loader");
+        const loaded = await loadEngineResources((step, ratio) => {
+          if (cancelled) return;
+          setStatus({
+            kind: "loading",
+            step,
+            progress: Math.max(0, Math.min(1, ratio)),
+          });
+        });
+        if (cancelled) return;
+        setResources(loaded);
+        setStatus({ kind: "idle" });
+      } catch (err) {
+        if (cancelled) return;
+        setStatus({
+          kind: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [injected]);
 
-export function EngineProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatus] = useState<AnalysisStatus>(initialStatus);
-  const [result, setResult] = useState<AnalysisResult>(EMPTY);
-
-  const run = useCallback((text: string): AnalysisResult => {
-    const next = analyze(text);
+  // When resources land, replay the most recent pending request.
+  useEffect(() => {
+    if (!resources) return;
+    if (pendingText.current === null) return;
+    const text = pendingText.current;
+    pendingText.current = null;
+    const next = analyze(resources, text);
     setResult(next);
-    if (!text.trim()) {
-      setStatus({ kind: "idle" });
-    } else if (next.cardItems.length === 0) {
-      setStatus({ kind: "empty" });
-    } else {
-      setStatus({ kind: "ready" });
-    }
-    return next;
-  }, []);
+    if (!text.trim()) setStatus({ kind: "idle" });
+    else if (next.cardItems.length === 0) setStatus({ kind: "empty" });
+    else setStatus({ kind: "ready" });
+  }, [resources]);
+
+  const run = useCallback(
+    (text: string): AnalysisResult => {
+      if (!resources) {
+        pendingText.current = text;
+        return EMPTY_RESULT;
+      }
+      const next = analyze(resources, text);
+      setResult(next);
+      if (!text.trim()) setStatus({ kind: "idle" });
+      else if (next.cardItems.length === 0) setStatus({ kind: "empty" });
+      else setStatus({ kind: "ready" });
+      return next;
+    },
+    [resources],
+  );
 
   const clear = useCallback(() => {
-    setResult(EMPTY);
-    setStatus({ kind: "idle" });
-  }, []);
+    pendingText.current = null;
+    setResult(EMPTY_RESULT);
+    setStatus(resources ? { kind: "idle" } : status);
+  }, [resources, status]);
+
+  const getEntry = useCallback(
+    (type: "vocab" | "grammar", dictKey: string) => {
+      if (!resources) return null;
+      return resolveEntry(resources, type, dictKey);
+    },
+    [resources],
+  );
 
   const value = useMemo<EngineContextValue>(
-    () => ({ status, result, run, clear }),
-    [status, result, run, clear],
+    () => ({ status, result, run, clear, getEntry }),
+    [status, result, run, clear, getEntry],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

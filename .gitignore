@@ -54,3 +54,6 @@ next-env.d.ts
 /venv/
 __pycache__/
 *.pyc
+
+# kuromoji IPADIC dict synced from node_modules by postinstall
+/public/dict/

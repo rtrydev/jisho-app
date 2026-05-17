@@ -19,10 +19,10 @@ describe("Read screen", () => {
       expect(screen.getByText(/Breakdown/)).toBeInTheDocument();
     });
 
-    // The vocabulary card for 先生 appears.
-    await findCard("v-sensei");
-    // And the grammar pattern card 〜を…と呼ぶ appears.
-    await findCard("g-toyobu");
+    // The vocabulary card for 先生 appears, resolved against the live dict.
+    await findCard("v-先生");
+    // And the grammar pattern card 〜ていた appears from the grammar bank.
+    await findCard("g-ていた");
   });
 
   it("typing a non-demo sentence wipes the breakdown and shows the empty hint", async () => {
@@ -35,30 +35,30 @@ describe("Read screen", () => {
         screen.getByText(/No analysis available for this input/i),
       ).toBeInTheDocument();
     });
-    expect(queryCard("v-sensei")).toBeNull();
-    expect(queryCard("g-toyobu")).toBeNull();
+    expect(queryCard("v-先生")).toBeNull();
+    expect(queryCard("g-ていた")).toBeNull();
   });
 
   it("clicking the All/Vocab/Grammar filter narrows the visible cards", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
-    await findCard("g-toyobu");
+    await findCard("v-先生");
+    await findCard("g-ていた");
 
     // Grammar tab — only grammar cards remain.
     await user.click(screen.getByRole("radio", { name: "grammar" }));
-    expect(queryCard("v-sensei")).toBeNull();
-    expect(queryCard("g-toyobu")).not.toBeNull();
+    expect(queryCard("v-先生")).toBeNull();
+    expect(queryCard("g-ていた")).not.toBeNull();
 
     // Vocab tab — only vocab cards remain.
     await user.click(screen.getByRole("radio", { name: "vocab" }));
-    expect(queryCard("g-toyobu")).toBeNull();
-    expect(queryCard("v-sensei")).not.toBeNull();
+    expect(queryCard("g-ていた")).toBeNull();
+    expect(queryCard("v-先生")).not.toBeNull();
   });
 
   it("favoriting a card from the Read screen surfaces it under Favorites", async () => {
     const { user } = renderApp();
 
-    const card = await findCard("v-sensei");
+    const card = await findCard("v-先生");
     const favBtn = within(card).getByRole("button", { name: /add favorite/i });
     await user.click(favBtn);
 
@@ -67,12 +67,12 @@ describe("Read screen", () => {
     await screen.findByText("Favorites", { selector: ".sc-title" });
 
     // The 先生 card is rendered live from the dictionary on Favorites.
-    await findCard("v-sensei");
+    await findCard("v-先生");
   });
 
   it("Copy all writes the formatted study note to the clipboard", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     const copyAll = screen.getByRole("button", { name: /copy all results/i });
     await user.click(copyAll);
@@ -88,7 +88,7 @@ describe("Read screen", () => {
 
   it("Share copies a self-contained URL fragment of the current text", async () => {
     const { user } = renderApp();
-    await findCard("v-sensei");
+    await findCard("v-先生");
 
     await user.click(screen.getByRole("button", { name: /share query/i }));
 
@@ -102,7 +102,7 @@ describe("Read screen", () => {
 
   it("Copy gloss copies the individual gloss line, respecting copy format", async () => {
     const { user } = renderApp();
-    const card = await findCard("v-sensei");
+    const card = await findCard("v-先生");
     const glossCopyButtons = within(card).getAllByRole("button", { name: /copy gloss/i });
     expect(glossCopyButtons.length).toBeGreaterThan(0);
 

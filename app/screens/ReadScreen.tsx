@@ -15,6 +15,11 @@ import { Sheet } from "../components/Sheet";
 import { TermCard, type TermCardData } from "../components/TermCard";
 import { useIsMobile } from "../components/AppShell";
 import { dictKeyOf } from "../lib/analyzer";
+import {
+  DEMO_ENGLISH,
+  DEMO_SOURCE,
+  isDemoSentence,
+} from "../lib/engine/demoResources";
 import { formatAllResults, formatCard, formatGloss, writeClipboard } from "../lib/copy";
 import { buildShareUrl } from "../lib/share";
 import { useAnalyzer } from "../providers/EngineProvider";
@@ -30,7 +35,7 @@ export function ReadScreen({
 }) {
   const mobile = useIsMobile();
   const { settings } = useSettings();
-  const { result, run } = useAnalyzer();
+  const { result, status, run } = useAnalyzer();
   const { recordHistory, isFavorite, toggleFavorite } = useUserData();
 
   const [text, setText] = useState<string>(initialText ?? settings.defaultSentence);
@@ -46,6 +51,8 @@ export function ReadScreen({
   const lastAnalysed = useRef<string | null>(null);
 
   // Run analyzer when text changes; record history on first successful pass.
+  // While the engine is still loading, `run` queues the text and replays it on
+  // ready — so we re-run history-recording from `result` once that lands.
   useEffect(() => {
     if (lastAnalysed.current === text) return;
     lastAnalysed.current = text;
@@ -54,6 +61,12 @@ export function ReadScreen({
       recordHistory(text, out.cardItems.length);
     }
   }, [text, run, recordHistory]);
+
+  useEffect(() => {
+    if (status.kind === "ready" && result.text && result.cardItems.length > 0) {
+      recordHistory(result.text, result.cardItems.length);
+    }
+  }, [status.kind, result.text, result.cardItems.length, recordHistory]);
 
   // Trigger a one-shot pulse highlight on the selected card.
   useEffect(() => {
@@ -138,7 +151,10 @@ export function ReadScreen({
     ? result.cardItems.find((c) => c.id === sheetCardId) ?? null
     : null;
 
-  const meaningfulTokenCount = result.tokens.filter((t) => t.pos !== "punct").length;
+  const meaningfulTokenCount = result.tokens.filter((t) => t.pos !== "punct" && t.pos !== "記号").length;
+  const showDemoTranslation = isDemoSentence(result.text);
+  const englishCaption = result.english ?? (showDemoTranslation ? DEMO_ENGLISH : undefined);
+  const sourceCaption = result.source ?? (showDemoTranslation ? DEMO_SOURCE : undefined);
 
   return (
     <div className={`screen read ${mobile ? "mobile" : "desktop"}`}>
@@ -147,8 +163,8 @@ export function ReadScreen({
         <div className="ri-head">
           <div className="ri-meta">
             <span className="ri-title serif">Analysis</span>
-            {result.source && (
-              <span className="ink-faint mono"> · {result.source}</span>
+            {sourceCaption && (
+              <span className="ink-faint mono"> · {sourceCaption}</span>
             )}
           </div>
           <div className="ri-actions">
@@ -193,10 +209,10 @@ export function ReadScreen({
                 placeholder="日本語をペーストしてください…"
               />
             </div>
-            {result.english && (
+            {englishCaption && (
               <div className="ri-trans serif">
                 <span className="ink-faint">“</span>
-                {result.english}
+                {englishCaption}
                 <span className="ink-faint">”</span>
               </div>
             )}
@@ -245,11 +261,15 @@ export function ReadScreen({
         </div>
         {visibleCards.length === 0 ? (
           <div className="rc-empty">
-            {result.cardItems.length === 0
-              ? text.trim()
-                ? "No analysis available for this input. (Stub engine — try the default sentence.)"
-                : "Paste Japanese text above to begin."
-              : "No terms match this filter."}
+            {status.kind === "loading"
+              ? `${status.step} ${Math.round(status.progress * 100)}%`
+              : status.kind === "error"
+                ? `Engine failed to load: ${status.message}`
+                : result.cardItems.length === 0
+                  ? text.trim()
+                    ? "No analysis available for this input."
+                    : "Paste Japanese text above to begin."
+                  : "No terms match this filter."}
           </div>
         ) : (
           <div className="rc-grid">

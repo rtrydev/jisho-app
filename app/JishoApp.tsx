@@ -11,6 +11,7 @@ import { SettingsProvider } from "./providers/SettingsProvider";
 import { UserDataProvider } from "./providers/UserDataProvider";
 import { historyId } from "./lib/history";
 import { clearFragment, readFragmentQuery } from "./lib/share";
+import type { EngineResources } from "./lib/analyzer";
 
 /** Read + consume any `#q1:…` deep link exactly once, synchronously. */
 function consumeFragmentQueryOnce(): string | null {
@@ -50,11 +51,15 @@ function AppRoot() {
   );
 }
 
-export function JishoApp() {
+export function JishoApp({
+  engineResources,
+}: {
+  engineResources?: EngineResources;
+} = {}) {
   return (
     <SettingsProvider>
       <UserDataProvider>
-        <EngineProvider>
+        <EngineProvider resources={engineResources}>
           <AppRoot />
         </EngineProvider>
       </UserDataProvider>
