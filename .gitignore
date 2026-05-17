@@ -57,3 +57,10 @@ __pycache__/
 
 # kuromoji IPADIC dict synced from node_modules by postinstall
 /public/dict/
+
+# terraform state and local plan caches (real state should live in a remote backend)
+/terraform/.terraform/
+/terraform/*.tfstate
+/terraform/*.tfstate.*
+/terraform/*.tfplan
+/terraform/.terraform.tfstate.lock.info

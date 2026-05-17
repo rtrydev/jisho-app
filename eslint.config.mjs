@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // CloudFront Functions run in a constrained JS runtime that calls
+    // top-level `handler` implicitly — eslint can't see the invocation.
+    "terraform/cloudfront-functions/**",
   ]),
 ]);
 
