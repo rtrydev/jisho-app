@@ -1,0 +1,123 @@
+import type { SVGProps } from "react";
+
+type IconProps = SVGProps<SVGSVGElement> & { size?: number };
+
+function withDefaults({ size = 16, ...rest }: IconProps) {
+  return {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    ...rest,
+  };
+}
+
+export const Read = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M3 5.5c2-1 5-1.5 7.5-1 .8.2 1.5.5 1.5 1.2v13c0-.7-.7-1-1.5-1.2-2.5-.5-5.5 0-7.5 1V5.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <path d="M21 5.5c-2-1-5-1.5-7.5-1-.8.2-1.5.5-1.5 1.2v13c0-.7.7-1 1.5-1.2 2.5-.5 5.5 0 7.5 1V5.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const History = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <path d="M3 4v4h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M12 7v5.5l3.5 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const Favorites = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+    <text x="12" y="16" textAnchor="middle" fontFamily='"Noto Serif JP", serif' fontSize="9" fontWeight="700" fill="currentColor">印</text>
+  </svg>
+);
+
+export const Settings = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Search = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M16 16l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Close = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M5 5l14 14M19 5L5 19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Trash = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6.5 7l1 12.5a1 1 0 0 0 1 .9h7a1 1 0 0 0 1-.9L17.5 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const Share = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <circle cx="6" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
+    <circle cx="17" cy="6" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
+    <circle cx="17" cy="18" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M8 11l7-4M8 13l7 4" stroke="currentColor" strokeWidth="1.4"/>
+  </svg>
+);
+
+export const Copy = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <rect x="5" y="5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M9 2.5h9A2 2 0 0 1 20 4.5v9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Collapse = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const Play = (p: IconProps) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
+    <path d="M4 3l7 4-7 4V3z" fill="currentColor"/>
+  </svg>
+);
+
+export const Check = (p: IconProps) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
+    <path d="M3 7.5L6 10.5L11 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const ShareArrow = (p: IconProps) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
+    <path d="M7 1.5v8M7 1.5L4.5 4M7 1.5L9.5 4M2.5 8v3.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export const Seal = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
+    <rect
+      x="2.2" y="2.2" width="9.6" height="9.6" rx="1.6"
+      fill={filled ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    {filled && (
+      <text x="7" y="9.6" textAnchor="middle"
+            fontFamily='"Noto Serif JP", serif'
+            fontSize="6.5" fontWeight="700"
+            fill="var(--paper-card)">印</text>
+    )}
+  </svg>
+);
+
+export const Icon = {
+  Read, History, Favorites, Settings, Search, Close,
+  Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Seal,
+};
