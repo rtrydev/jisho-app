@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Jisho · Editorial Ink",
+  title: "Jisho · v2",
   description:
-    "Jisho v2 design system — Editorial Ink. A client-side Japanese reading assistant.",
+    "A quiet workspace for reading Japanese — Editorial Ink. Client-side reading assistant.",
 };
 
+// Initial data-attrs match the default settings; the SettingsProvider hydrates
+// from localStorage on mount and rewrites these synchronously after.
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -19,6 +21,7 @@ export default function RootLayout({
       data-accent="seal"
       data-furigana="always"
       data-jp-scale="M"
+      suppressHydrationWarning
     >
       <body>{children}</body>
     </html>
