@@ -47,3 +47,10 @@ next-env.d.ts
 
 # v1 snapshot — kept locally for reference, not redistributed
 /archive/
+
+# data pipeline scratch + generated outputs
+/.pipeline-work/
+/public/data/
+/venv/
+__pycache__/
+*.pyc
