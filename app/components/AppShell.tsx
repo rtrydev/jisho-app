@@ -74,6 +74,9 @@ export function AppShell({
           <span className="serif app-topbar-title">Jisho</span>
           <span className="mono app-topbar-sub">辞書</span>
         </div>
+        <span className="jp app-topbar-marginalia" aria-hidden="true">
+          客 ・ 静 ・ 読
+        </span>
       </header>
       <main className="app-main">{children}</main>
       <BottomTabs<ScreenId> items={TAB_ITEMS} active={active} onChange={onChange} />
