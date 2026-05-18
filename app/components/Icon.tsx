@@ -101,8 +101,8 @@ export const Check = (p: IconProps) => (
 );
 
 export const ShareArrow = (p: IconProps) => (
-  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
-    <path d="M7 1.5v8M7 1.5L4.5 4M7 1.5L9.5 4M2.5 8v3.5a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+  <svg {...withDefaults(p)}>
+    <path d="M12 3v9M8 7L12 3L16 7M5 12v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
 

@@ -208,14 +208,25 @@ export function ReadScreen({
   return (
     <div className="screen read">
       {/* Sticky input */}
-      <section className={`read-input ${collapsed ? "" : "sticky"}`}>
+      <section className={`read-input sticky${collapsed ? " read-input-collapsed" : ""}`}>
         <div className="ri-head">
-          <div className="ri-meta">
+          <button
+            type="button"
+            className="ri-disclosure"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Show input" : "Hide input"}
+          >
+            <Icon.Collapse
+              size={14}
+              className="ri-disclosure-chev"
+              style={{ transform: collapsed ? "rotate(-90deg)" : "none" }}
+            />
             <span className="ri-title serif">Analysis</span>
             {sourceCaption && (
               <span className="ink-faint mono"> · {sourceCaption}</span>
             )}
-          </div>
+          </button>
           <div className="ri-actions">
             <Button
               variant="ghost"
@@ -237,16 +248,6 @@ export function ReadScreen({
               <span className="btn-label-md">
                 {copyAllConfirm ? "Copied" : "Copy all"}
               </span>
-            </Button>
-            <Button
-              variant="icon"
-              aria-label={collapsed ? "Expand input" : "Collapse input"}
-              onClick={() => setCollapsed((c) => !c)}
-            >
-              <Icon.Collapse
-                size={18}
-                style={{ transform: collapsed ? "rotate(-90deg)" : "none", transition: "transform .14s" }}
-              />
             </Button>
           </div>
         </div>

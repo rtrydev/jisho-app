@@ -373,18 +373,17 @@ body {
 .rail-foot { margin-top: auto; display: flex; justify-content: center; padding: 8px 0; }
 
 /* ─── Mobile top bar (brand) ──────────────────────────────────────── */
+/* Sits on the same paper as the content beneath it, with no boundary
+   line — visually the brand bar and the next sticky/pinned header
+   (analysis bar on Read, sc-head on the other screens) read as one
+   continuous surface. The next section's own bottom rule is what closes
+   off the pinned region. */
 .app-topbar {
   grid-row: 1;
   display: flex; align-items: center; gap: 14px;
-  padding: 12px 16px 4px;
-  /* Same paper as the search-bar section below so the brand row reads as
-     one continuous header. No border-bottom either — the rule between
-     header and breakdown comes from `.read-input`. The bottom padding
-     here is small (4px) because `.read-input` adds its own top padding;
-     the visual gap is the SUM, kept tight so the brand + search read as
-     one block. */
+  padding: 10px 16px;
   background: var(--paper);
-  min-height: 64px;
+  min-height: 56px;
 }
 .app-topbar-text { display: flex; flex-direction: column; line-height: 1; min-width: 0; }
 .app-topbar-title { font-size: 24px; font-weight: 500; letter-spacing: 0.005em; color: var(--ink); }
@@ -1087,7 +1086,11 @@ body {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
-  padding: 18px 16px 18px;
+  /* No bottom padding — the breathing room above the BottomTabs lives
+     *inside* `.screen-body` (its `padding-bottom`), so it scrolls away
+     with the content. That makes the BottomTabs the visible clip
+     boundary at the bottom, just as the header rule is at the top. */
+  padding: 18px 16px 0;
   display: flex; flex-direction: column; gap: 16px;
   overflow-y: auto;
 }
@@ -1108,14 +1111,28 @@ body {
   min-height: 0;
   overflow-y: auto;
   display: flex; flex-direction: column; gap: 16px;
+  padding-bottom: 16px;
 }
 @media (min-width: 821px) {
-  .screen-body { gap: 22px; }
+  .screen-body { gap: 22px; padding-bottom: 22px; }
 }
 .screen-body > * { flex-shrink: 0; }
+
+/* Sit `.screen-body` flush against whatever pinned element precedes it
+   (`.sc-head` on History/Settings, the Favorites tab strip on Favorites)
+   so the header rule is the visible boundary with scrolled content —
+   mirroring the Read screen's sticky-header behaviour. The negative
+   margin-top cancels the parent's flex `gap`; the matching padding-top
+   sits *inside* the scroll region, so it acts as initial breathing room
+   that scrolls away as the user scrolls, leaving the first row clipped
+   right at the header line. */
+.screen > * + .screen-body { margin-top: -16px; padding-top: 16px; }
+@media (min-width: 821px) {
+  .screen > * + .screen-body { margin-top: -22px; padding-top: 22px; }
+}
 @media (min-width: 821px) {
   .screen {
-    padding: 28px 36px 28px;
+    padding: 28px 36px 0;
     gap: 22px;
   }
 }
@@ -1123,7 +1140,20 @@ body {
 .sc-head {
   display: flex; justify-content: space-between; align-items: flex-end;
   gap: 12px;
-  padding-bottom: 12px; border-bottom: 1px solid var(--line);
+  /* Negative horizontal margins (matched by equal horizontal padding) push
+     the sc-head box out to the screen's outer edges so its bottom rule
+     spans full width — matching the Read screen's analysis-header rule.
+     The content stays in place because the padding cancels the margin
+     for inner-flow purposes. */
+  margin-left: -16px; margin-right: -16px;
+  padding: 0 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 821px) {
+  .sc-head {
+    margin-left: -36px; margin-right: -36px;
+    padding: 0 36px 12px;
+  }
 }
 .sc-title {
   font-family: var(--f-display);
@@ -1197,6 +1227,16 @@ body {
   .read-input { padding-top: 28px; padding-bottom: 20px; }
 }
 .read-input.sticky { position: sticky; top: 0; z-index: 5; }
+/* Collapsed state hides the textarea — keep the section's top padding
+   matching the expanded state, and mirror it on the bottom so the
+   disclosure row sits symmetrically between the rules. The heading's
+   former bottom margin (sized for the field that's no longer there)
+   collapses to 0 so it doesn't double the visual gap. */
+.read-input-collapsed { padding-bottom: 10px; }
+.read-input-collapsed .ri-head { margin-bottom: 0; }
+@media (min-width: 821px) {
+  .read-input-collapsed { padding-bottom: 28px; }
+}
 .ri-head {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   font-size: 11px; color: var(--ink-faint);
@@ -1206,6 +1246,29 @@ body {
 .ri-meta { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .ri-title { font-family: var(--f-display); font-size: 14px; color: var(--ink-soft); letter-spacing: 0.01em; }
 .ri-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* Disclosure-style toggle: the title row IS the hide/show control, with a
+   tree-disclosure chevron prefixed to "Analysis" (▾ open, ▸ closed). This
+   replaces the cryptic icon-only collapse button that used to sit in the
+   action cluster — having the chevron next to the title is a much clearer
+   affordance, and the hit target now spans the whole heading. */
+.ri-disclosure {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  flex-wrap: wrap; min-width: 0;
+  background: transparent; border: none;
+  padding: 4px 8px; margin: -4px -8px;
+  border-radius: 3px;
+  font: inherit; color: var(--ink-soft);
+  text-align: left; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ri-disclosure:hover { background: var(--paper-card); color: var(--ink); }
+.ri-disclosure-chev {
+  align-self: center; color: var(--ink-faint);
+  transition: transform .14s ease, color .12s;
+  flex: 0 0 auto;
+}
+.ri-disclosure:hover .ri-disclosure-chev { color: var(--ink); }
 @media (max-width: 820px) { .ri-trans { font-size: 13px; } }
 
 .ri-textarea {
