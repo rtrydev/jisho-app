@@ -56,6 +56,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   // viewport-fit=cover lets the app paint under the iOS notch and home
   // indicator when installed as a PWA.
   viewportFit: "cover",
