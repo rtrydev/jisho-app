@@ -48,17 +48,13 @@ export function ReadScreen({
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastAnalysed = useRef<string | null>(null);
 
-  // Run analyzer when text changes; record history on first successful pass.
-  // While the engine is still loading, `run` queues the text and replays it on
-  // ready — so we re-run history-recording from `result` once that lands.
+  // Run analyzer when text changes. History recording is debounced separately
+  // below so we don't write a row for every keystroke as the user types.
   useEffect(() => {
     if (lastAnalysed.current === text) return;
     lastAnalysed.current = text;
-    const out = run(text);
-    if (text.trim() && out.cardItems.length > 0) {
-      recordHistory(text, out.cardItems.length);
-    }
-  }, [text, run, recordHistory]);
+    run(text);
+  }, [text, run]);
 
   // Mirror `text` back into `?q=` so the current query is shareable / refreshable.
   // `replaceState` (not `pushState`) — a long search shouldn't fill the back stack.
@@ -66,11 +62,18 @@ export function ReadScreen({
     writeQueryParam(text);
   }, [text]);
 
+  // Debounced history recording: wait until the user has settled on an input
+  // before persisting it, so a single typed sentence doesn't leave a trail of
+  // partial-prefix rows ("d", "de", "depr", …) in history. Driving off
+  // `result` (not `text`) also covers the case where the engine was still
+  // loading on first keystroke and only produces cards once it's ready.
   useEffect(() => {
-    if (status.kind === "ready" && result.text && result.cardItems.length > 0) {
+    if (!result.text.trim() || result.cardItems.length === 0) return;
+    const id = window.setTimeout(() => {
       recordHistory(result.text, result.cardItems.length);
-    }
-  }, [status.kind, result.text, result.cardItems.length, recordHistory]);
+    }, 1500);
+    return () => window.clearTimeout(id);
+  }, [result.text, result.cardItems.length, recordHistory]);
 
   // Trigger a one-shot pulse highlight on the selected card.
   useEffect(() => {
