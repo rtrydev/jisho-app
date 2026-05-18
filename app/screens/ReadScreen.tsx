@@ -15,7 +15,7 @@ import { Sheet } from "../components/Sheet";
 import { TermCard, type TermCardData } from "../components/TermCard";
 import { useToast } from "../components/Toast";
 import { useIsMobile } from "../components/AppShell";
-import { dictKeyOf } from "../lib/analyzer";
+import { dictKeyOf, detectLanguage } from "../lib/analyzer";
 import { DEMO_SOURCE, isDemoSentence } from "../lib/engine/demoResources";
 import { formatAllResults, writeClipboard } from "../lib/copy";
 import { buildShareUrl, writeQueryParam } from "../lib/share";
@@ -202,8 +202,24 @@ export function ReadScreen({
     ? result.cardItems.find((c) => c.id === sheetCardId) ?? null
     : null;
 
+  /** EN→JP cards represent an aggregate English query, not a single JP
+   *  entry. Favorite/share are JP-keyed and don't apply; copy still works. */
+  const isInvertedCard = (c: TermCardData): boolean =>
+    !!(c.candidates && c.candidates.length > 0);
+
   const meaningfulTokenCount = result.tokens.filter((t) => t.pos !== "punct" && t.pos !== "記号").length;
   const sourceCaption = result.source ?? (isDemoSentence(result.text) ? DEMO_SOURCE : undefined);
+
+  // Detect the language of the *current* textarea content so the placeholder
+  // styling and direction badge stay live while the user types — the analyzer
+  // result lags one debounce/run behind, and we want the hint to lead.
+  const inputDirection = text.trim() ? detectLanguage(text) : null;
+  const directionBadge =
+    result.direction === "en" && result.text
+      ? "EN → 日本語"
+      : result.direction === "ja" && result.text
+        ? "日本語 → EN"
+        : null;
 
   return (
     <div className="screen read">
@@ -215,7 +231,7 @@ export function ReadScreen({
             className="ri-disclosure"
             onClick={() => setCollapsed((c) => !c)}
             aria-expanded={!collapsed}
-            aria-label={collapsed ? "Show input" : "Hide input"}
+            aria-label={collapsed ? "Expand input" : "Collapse input"}
           >
             <Icon.Collapse
               size={14}
@@ -223,6 +239,9 @@ export function ReadScreen({
               style={{ transform: collapsed ? "rotate(-90deg)" : "none" }}
             />
             <span className="ri-title serif">Analysis</span>
+            {directionBadge && (
+              <span className="ink-faint mono"> · {directionBadge}</span>
+            )}
             {sourceCaption && (
               <span className="ink-faint mono"> · {sourceCaption}</span>
             )}
@@ -254,12 +273,12 @@ export function ReadScreen({
         {!collapsed && (
           <div className="ri-field">
             <textarea
-              className="ri-textarea jp"
+              className={`ri-textarea${inputDirection === "en" ? "" : " jp"}`}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              spellCheck={false}
+              spellCheck={inputDirection === "en"}
               rows={1}
-              placeholder="日本語をペーストしてください…"
+              placeholder="日本語 or English · type or paste to look up"
             />
           </div>
         )}
@@ -312,8 +331,10 @@ export function ReadScreen({
                 ? `Engine failed to load: ${status.message}`
                 : result.cardItems.length === 0
                   ? text.trim()
-                    ? "No analysis available for this input."
-                    : "Paste Japanese text above to begin."
+                    ? result.direction === "en"
+                      ? "No entries match this English query."
+                      : "No analysis available for this input."
+                    : "Type Japanese or English above to look up — the input direction is detected automatically."
                   : "No terms match this filter."}
           </div>
         ) : mobile ? (
@@ -328,8 +349,8 @@ export function ReadScreen({
               >
                 <TermCard
                   card={c}
-                  favorite={isFavorite(c.type, dictKeyOf(c))}
-                  onToggleFavorite={() => onCardFavorite(c)}
+                  favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
+                  onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
                   onCopy={() => onCardCopy(c)}
                   onShare={() => onCardShare(c)}
                   highlight={pulseId === c.id}
@@ -351,8 +372,8 @@ export function ReadScreen({
                   >
                     <TermCard
                       card={c}
-                      favorite={isFavorite(c.type, dictKeyOf(c))}
-                      onToggleFavorite={() => onCardFavorite(c)}
+                      favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
+                      onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
                       onCopy={() => onCardCopy(c)}
                       onShare={() => onCardShare(c)}
                       highlight={pulseId === c.id}
@@ -383,8 +404,8 @@ export function ReadScreen({
           <Sheet onClose={() => setSheetCardId(null)}>
             <TermCard
               card={sheetCard}
-              favorite={isFavorite(sheetCard.type, dictKeyOf(sheetCard))}
-              onToggleFavorite={() => onCardFavorite(sheetCard)}
+              favorite={isInvertedCard(sheetCard) ? undefined : isFavorite(sheetCard.type, dictKeyOf(sheetCard))}
+              onToggleFavorite={isInvertedCard(sheetCard) ? undefined : () => onCardFavorite(sheetCard)}
               onCopy={() => onCardCopy(sheetCard)}
               onShare={() => onCardShare(sheetCard)}
             />

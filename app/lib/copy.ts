@@ -2,6 +2,33 @@ import type { TermCardData } from "../components/TermCard";
 import type { CopyFormat } from "./settings";
 
 export function formatCard(card: TermCardData, format: CopyFormat): string {
+  // EN→JP inverted card: the head is the user's English query, the body is
+  // a candidate list of JP entries. The format mirrors the visual layout
+  // — English headline, candidates as numbered lines with JP + kana + POS
+  // + a one-line disambiguator.
+  if (card.candidates && card.candidates.length > 0) {
+    if (format === "markdown") {
+      const lines: string[] = [];
+      lines.push(`### ${card.head}`);
+      lines.push("");
+      card.candidates.forEach((c, i) => {
+        const reading = c.reading && c.reading !== c.head ? ` （${c.reading}）` : "";
+        const pos = c.pos.length ? ` _${c.pos.join(" · ")}_` : "";
+        const tail = c.disambig ? ` — ${c.disambig}` : "";
+        lines.push(`${i + 1}. ${c.head}${reading}${pos}${tail}`);
+      });
+      return lines.join("\n");
+    }
+    const lines: string[] = [];
+    lines.push(card.head);
+    card.candidates.forEach((c, i) => {
+      const reading = c.reading && c.reading !== c.head ? ` (${c.reading})` : "";
+      const pos = c.pos.length ? ` [${c.pos.join("/")}]` : "";
+      const tail = c.disambig ? ` — ${c.disambig}` : "";
+      lines.push(`${i + 1}. ${c.head}${reading}${pos}${tail}`);
+    });
+    return lines.join("\n");
+  }
   if (format === "markdown") {
     const lines: string[] = [];
     const reading = card.reading ? ` （${card.reading}）` : "";

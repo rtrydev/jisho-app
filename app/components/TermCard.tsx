@@ -4,6 +4,23 @@ import { ExampleList, type ExampleSentence } from "./Example";
 import { ConjugationGrid, type Conjugation } from "./ConjugationGrid";
 import { Tag, PosPill } from "./Tag";
 
+/** One JP entry surfaced as a translation candidate for an English query.
+ *  Populated only on EN→JP cards (where `candidates` is non-empty). */
+export type CandidateRef = {
+  /** JP headword (kanji or kana form). */
+  head: string;
+  /** Kana reading, when distinct from the headword. */
+  reading?: string;
+  /** Kind of underlying entry — controls the colorway of the candidate row
+   *  (vocab → indigo, grammar → seal). */
+  kind: "vocab" | "grammar";
+  /** POS tags for the matched sense — same shape as the top-level pos. */
+  pos: string[];
+  /** First English gloss of the matched sense, used as a one-line
+   *  disambiguator next to the headword (e.g., "to give up; to abandon"). */
+  disambig?: string;
+};
+
 export type TermCardData = {
   id: string;
   type: "vocab" | "grammar";
@@ -18,6 +35,11 @@ export type TermCardData = {
   formula?: string;
   conjugation?: Conjugation;
   examples?: ExampleSentence[];
+  /** EN→JP card content. When set, the card renders in inverted layout:
+   *  the head is the English query, the body lists JP candidates, and the
+   *  numbered gloss list / examples / conjugation are suppressed (those
+   *  belong to a specific JP entry; this card represents an aggregate). */
+  candidates?: CandidateRef[];
 };
 
 export function TermCard({
@@ -40,14 +62,62 @@ export function TermCard({
   className?: string;
 }) {
   const isGrammar = card.type === "grammar";
+  const isInverted = !!(card.candidates && card.candidates.length > 0);
   const cls = [
     "card",
     isGrammar ? "card-grammar" : "card-vocab",
+    isInverted ? "card-en" : "",
     highlight ? "pulsing" : "",
     className,
   ]
     .filter(Boolean)
     .join(" ");
+
+  if (isInverted) {
+    return (
+      <article className={cls} data-card-id={card.id}>
+        <FloatingActions
+          favorite={favorite}
+          onFavorite={onToggleFavorite}
+          onCopy={onCopy}
+          onShare={onShare}
+        />
+        <header className="card-head">
+          <div className="card-headword">
+            <span className="card-headword-en serif">{card.head}</span>
+          </div>
+        </header>
+        <ol className="candidates">
+          {card.candidates!.map((c, i) => (
+            <li key={`${c.head}-${i}`} className={`cand cand-${c.kind}`}>
+              <div className="cand-headline">
+                <span className="cand-jp jp">
+                  {c.reading && c.reading !== c.head ? (
+                    <Ruby base={c.head} rt={c.reading} />
+                  ) : (
+                    <span>{c.head}</span>
+                  )}
+                </span>
+                {c.pos.length > 0 && (
+                  <span className="cand-pos">
+                    {c.pos.map((p) => (
+                      <PosPill key={p}>{p}</PosPill>
+                    ))}
+                  </span>
+                )}
+              </div>
+              {c.reading && c.reading !== c.head && (
+                <div className="cand-reading ink-faint mono">
+                  {romanize(c.reading)}
+                </div>
+              )}
+              {c.disambig && <div className="cand-disambig">{c.disambig}</div>}
+            </li>
+          ))}
+        </ol>
+      </article>
+    );
+  }
 
   return (
     <article className={cls} data-card-id={card.id}>

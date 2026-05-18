@@ -179,6 +179,10 @@ export const demoResources: EngineResources = {
   dictionary,
   grammar,
   tokenizer: demoTokenizer,
+  glossIndex: {
+    vocab: { u: {}, p: {} },
+    grammar: { u: {}, p: {} },
+  },
 };
 
 /** True if `text` matches the curated demo sentence (after whitespace

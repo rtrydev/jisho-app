@@ -13,7 +13,7 @@ export function SideRail<T extends string>({
   onChange,
   brand = "Jisho",
   subtitle = "辞書",
-  marginalia = "客 ・ 静 ・ 読",
+  marginalia = "和 ・ 訳 ・ 英",
 }: {
   active: T;
   items: ReadonlyArray<RailItem<T>>;

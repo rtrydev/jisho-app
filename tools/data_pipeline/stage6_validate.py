@@ -12,12 +12,14 @@ import gzip
 import json
 import random
 from pathlib import Path
+from typing import Callable
 
 import fugashi
 import ipadic
 
 from .config import (
     DICTIONARY_OUT,
+    GLOSS_INDEX_OUT,
     GRAMMAR_MANIFEST_OUT,
     GRAMMAR_OUT,
     OUTPUT_DIR,
@@ -46,7 +48,165 @@ def _content_text(node) -> str:
     return ""
 
 
-def run(log: StageLog, dict_obj: dict, grammar_merged: list) -> None:
+def _validate_gloss_index(
+    log: StageLog,
+    dict_obj: dict,
+    grammar_merged: list,
+    gloss_index: dict,
+    rng: random.Random,
+) -> None:
+    for k in ("meta", "vocab", "grammar"):
+        if k not in gloss_index:
+            _fail(f"gloss-index missing top-level key {k!r}")
+    for section_name in ("vocab", "grammar"):
+        section = gloss_index[section_name]
+        if not isinstance(section, dict):
+            _fail(f"gloss-index.{section_name} is not an object")
+        for k in ("u", "p"):
+            if k not in section or not isinstance(section[k], dict):
+                _fail(f"gloss-index.{section_name}.{k} is missing or malformed")
+    log.info("gloss-index schema: top-level shape OK")
+
+    n_vu = len(gloss_index["vocab"]["u"])
+    n_vp = len(gloss_index["vocab"]["p"])
+    n_gu = len(gloss_index["grammar"]["u"])
+    n_gp = len(gloss_index["grammar"]["p"])
+    bounds = [
+        ("vocab.u", n_vu, POLICY.min_gloss_vocab_unigram_keys, POLICY.max_gloss_vocab_unigram_keys),
+        ("vocab.p", n_vp, POLICY.min_gloss_vocab_phrase_keys, POLICY.max_gloss_vocab_phrase_keys),
+        ("grammar.u", n_gu, POLICY.min_gloss_grammar_unigram_keys, POLICY.max_gloss_grammar_unigram_keys),
+        ("grammar.p", n_gp, POLICY.min_gloss_grammar_phrase_keys, POLICY.max_gloss_grammar_phrase_keys),
+    ]
+    for name, n, lo, hi in bounds:
+        if not (lo <= n <= hi):
+            _fail(f"gloss-index {name} key count {n:,} outside expected [{lo:,}, {hi:,}]")
+    log.info(
+        f"gloss-index bounds: vocab u={n_vu:,} p={n_vp:,}; "
+        f"grammar u={n_gu:,} p={n_gp:,}"
+    )
+
+    words = dict_obj["words"]
+    # Grammar entry headword → entry, for posting integrity checks.
+    grammar_by_head: dict[str, list] = {}
+    for entry in grammar_merged:
+        head = entry[0]
+        # Multiple bank entries can share a headword; first one wins for the
+        # integrity check (we only need existence).
+        grammar_by_head.setdefault(head, entry)
+
+    def _check_vocab_posting(section: str, key: str, row) -> None:
+        if not (isinstance(row, list) and len(row) == 3):
+            _fail(f"gloss-index vocab.{section}[{key!r}] posting malformed: {row!r}")
+        head, sense_idx, score = row
+        entry = words.get(head)
+        if entry is None:
+            _fail(
+                f"gloss-index vocab.{section}[{key!r}] points at missing "
+                f"headword {head!r}"
+            )
+        senses = entry.get("s") or []
+        if not (0 <= sense_idx < len(senses)):
+            _fail(
+                f"gloss-index vocab.{section}[{key!r}] sense {sense_idx} out "
+                f"of range for {head!r} (has {len(senses)} senses)"
+            )
+        if not (isinstance(score, int) and 1 <= score <= 1099):
+            _fail(
+                f"gloss-index vocab.{section}[{key!r}] score {score!r} out of range"
+            )
+
+    def _check_grammar_posting(section: str, key: str, row) -> None:
+        if not (isinstance(row, list) and len(row) == 3):
+            _fail(f"gloss-index grammar.{section}[{key!r}] posting malformed: {row!r}")
+        head, sense_idx, score = row
+        if head not in grammar_by_head:
+            _fail(
+                f"gloss-index grammar.{section}[{key!r}] points at missing "
+                f"headword {head!r}"
+            )
+        if sense_idx != 0:
+            _fail(
+                f"gloss-index grammar.{section}[{key!r}] sense {sense_idx} != 0 "
+                "(grammar entries have a single sense)"
+            )
+        if not (isinstance(score, int) and 1 <= score <= 1099):
+            _fail(
+                f"gloss-index grammar.{section}[{key!r}] score {score!r} out of range"
+            )
+
+    sample_size = POLICY.validation_sample_size
+    cap = POLICY.gloss_max_postings_per_key
+
+    def _sample_check(
+        section_name: str,
+        kind: str,
+        check: Callable[[str, str, object], None],
+    ) -> int:
+        postings = gloss_index[section_name][kind]
+        keys = rng.sample(list(postings.keys()), k=min(sample_size, len(postings)))
+        for key in keys:
+            rows = postings[key]
+            if not rows:
+                _fail(f"gloss-index {section_name}.{kind}[{key!r}] is empty")
+            if len(rows) > cap:
+                _fail(
+                    f"gloss-index {section_name}.{kind}[{key!r}] has "
+                    f"{len(rows)} postings, exceeds cap {cap}"
+                )
+            for row in rows[:5]:
+                check(kind, key, row)
+        return len(keys)
+
+    counts = {}
+    counts["vu"] = _sample_check("vocab", "u", _check_vocab_posting)
+    counts["vp"] = _sample_check("vocab", "p", _check_vocab_posting)
+    counts["gu"] = _sample_check("grammar", "u", _check_grammar_posting)
+    counts["gp"] = _sample_check("grammar", "p", _check_grammar_posting)
+    log.info(
+        "gloss-index posting integrity: sampled "
+        f"vocab(u={counts['vu']},p={counts['vp']}), "
+        f"grammar(u={counts['gu']},p={counts['gp']}) keys OK"
+    )
+
+    # Probe: at least one well-known phrase resolves into the expected JP
+    # headword. This catches normalization drift between build and config.
+    probe_phrases = [
+        ("vocab", "p", "give up", "諦める"),
+        ("vocab", "u", "book", "本"),
+    ]
+    for section_name, kind, key, expected_head_substr in probe_phrases:
+        if key not in gloss_index[section_name][kind]:
+            log.info(
+                f"  probe {section_name}.{kind}[{key!r}] absent — phrase index "
+                "may be unhealthy; check normalize_tokens drift"
+            )
+            continue
+        heads = {row[0] for row in gloss_index[section_name][kind][key]}
+        if not any(expected_head_substr in h or h in expected_head_substr for h in heads):
+            log.info(
+                f"  probe {section_name}.{kind}[{key!r}] did not include "
+                f"{expected_head_substr!r}; top heads={list(sorted(heads))[:5]}"
+            )
+
+    # Gzipped artifact decompresses and respects size budget.
+    if not GLOSS_INDEX_OUT.exists():
+        _fail(f"gloss-index artifact missing on disk: {GLOSS_INDEX_OUT}")
+    gz_size = GLOSS_INDEX_OUT.stat().st_size
+    if gz_size > POLICY.max_gloss_index_bytes_gz:
+        _fail(
+            f"gloss-index.json.gz is {gz_size:,} bytes, exceeds budget "
+            f"{POLICY.max_gloss_index_bytes_gz:,}"
+        )
+    try:
+        with gzip.open(GLOSS_INDEX_OUT, "rb") as f:
+            while f.read(1 << 16):
+                pass
+    except Exception as exc:
+        _fail(f"gloss-index.json.gz fails gzip decode: {exc}")
+    log.info(f"gloss-index.json.gz decompresses cleanly ({gz_size:,} bytes)")
+
+
+def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dict | None = None) -> None:
     log.stage("Stage 6 — validation")
     rng = random.Random(0xCAFEBABE)
 
@@ -175,5 +335,8 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list) -> None:
             f"grammar entries {len(grammar_merged)} outside expected "
             f"[{POLICY.min_grammar_entries}, {POLICY.max_grammar_entries}]"
         )
+
+    if gloss_index is not None:
+        _validate_gloss_index(log, dict_obj, grammar_merged, gloss_index, rng)
 
     log.done()

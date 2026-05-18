@@ -46,7 +46,7 @@ describe("History screen", () => {
 
     // Replace the textarea with something the analyser can't handle, then
     // navigate to History and replay the seeded entry.
-    const textarea = await screen.findByPlaceholderText(/日本語をペースト/);
+    const textarea = await screen.findByPlaceholderText(/日本語 or English/);
     await user.clear(textarea);
     await user.type(textarea, "別の文");
     await waitFor(() => {
@@ -59,7 +59,7 @@ describe("History screen", () => {
 
     // We're back on Read with the demo sentence and full term cards.
     await findCard("v-先生");
-    const ta = await screen.findByPlaceholderText(/日本語をペースト/);
+    const ta = await screen.findByPlaceholderText(/日本語 or English/);
     expect(ta).toHaveValue(DEMO_SENTENCE);
   });
 

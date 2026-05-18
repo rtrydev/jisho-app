@@ -13,6 +13,7 @@ import { ungzip } from "pako";
 import type {
   Dictionary,
   EngineResources,
+  GlossIndex,
   GrammarEntry,
   GrammarManifest,
   GrammarMap,
@@ -58,6 +59,14 @@ async function loadDictionary(onProgress?: LoaderProgress): Promise<Dictionary> 
   );
   const json = ungzip(new Uint8Array(buf), { to: "string" });
   return JSON.parse(json) as Dictionary;
+}
+
+async function loadGlossIndex(onProgress?: LoaderProgress): Promise<GlossIndex> {
+  const buf = await fetchProgress(`${ASSET_BASE}/gloss-index.json.gz`, (l, t) =>
+    onProgress?.("Loading reverse index…", l / t),
+  );
+  const json = ungzip(new Uint8Array(buf), { to: "string" });
+  return JSON.parse(json) as GlossIndex;
 }
 
 async function loadGrammar(onProgress?: LoaderProgress): Promise<GrammarMap> {
@@ -112,12 +121,13 @@ async function loadTokenizer(onProgress?: LoaderProgress): Promise<TokenizerLike
 export async function loadEngineResources(
   onProgress?: LoaderProgress,
 ): Promise<EngineResources> {
-  // Dictionary and grammar can fetch in parallel; the tokenizer is sequenced
-  // after so its progress reads from a single thread of work.
-  const [dictionary, grammar] = await Promise.all([
+  // Dictionary, grammar and gloss index can fetch in parallel; the tokenizer
+  // is sequenced after so its progress reads from a single thread of work.
+  const [dictionary, grammar, glossIndex] = await Promise.all([
     loadDictionary(onProgress),
     loadGrammar(onProgress),
+    loadGlossIndex(onProgress),
   ]);
   const tokenizer = await loadTokenizer(onProgress);
-  return { dictionary, grammar, tokenizer };
+  return { dictionary, grammar, tokenizer, glossIndex };
 }

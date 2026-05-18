@@ -63,6 +63,36 @@ export type GrammarEntry = [
 
 export type GrammarMap = Map<string, GrammarEntry>;
 
+// Posting tuple from `gloss-index.json.gz`: [headword, senseIdx, score].
+// `score` is precomputed at build time in [1, 100]; the runtime ranker
+// composes it with the entry's frequency proxy.
+//
+// For vocab postings the headword indexes into `Dictionary.words` and
+// `senseIdx` indexes into that entry's `s[]`. For grammar postings the
+// headword indexes into `GrammarMap` and `senseIdx` is always `0`
+// (grammar entries don't have JMdict-style senses).
+export type GlossPosting = [string, number, number];
+
+export type GlossIndexSection = {
+  /** Unigram postings: normalized English token → matching entries. */
+  u: Record<string, GlossPosting[]>;
+  /** Phrase postings: space-joined normalized n-tokens (2..N) → matching
+   *  entries. Used by the EN sentence-breakdown path to detect multi-word
+   *  expressions like "give up", "in spite of", "should not". */
+  p: Record<string, GlossPosting[]>;
+};
+
+export type GlossIndex = {
+  meta?: {
+    version?: string;
+    generated_at?: string;
+    description?: string;
+    [k: string]: unknown;
+  };
+  vocab: GlossIndexSection;
+  grammar: GlossIndexSection;
+};
+
 export type GrammarManifest = {
   version?: number;
   artifacts: Array<{
@@ -79,4 +109,9 @@ export type EngineResources = {
   dictionary: Dictionary;
   grammar: GrammarMap;
   tokenizer: TokenizerLike;
+  /** Reverse English-gloss index for the EN→JP search path. Built by
+   *  stage 5b of the data pipeline; see `glossQuery.ts` for the runtime
+   *  query. Empty unigram/bigram maps are a valid "no EN search" state for
+   *  in-memory test fixtures. */
+  glossIndex: GlossIndex;
 };

@@ -75,7 +75,7 @@ export function AppShell({
           <span className="mono app-topbar-sub">辞書</span>
         </div>
         <span className="jp app-topbar-marginalia" aria-hidden="true">
-          客 ・ 静 ・ 読
+          和 ・ 訳 ・ 英
         </span>
       </header>
       <main className="app-main">{children}</main>

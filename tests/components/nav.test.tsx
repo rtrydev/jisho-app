@@ -58,7 +58,7 @@ describe("SideRail", () => {
   it("renders the Hanko brand and the tategaki marginalia", () => {
     render(<SideRail<Id> items={railItems} active="read" />);
     expect(document.querySelector(".rail .hanko")).not.toBeNull();
-    expect(document.querySelector(".rail .tategaki")?.textContent).toContain("客");
+    expect(document.querySelector(".rail .tategaki")?.textContent).toContain("和");
   });
 
   it("custom brand / subtitle / marginalia slot in", () => {

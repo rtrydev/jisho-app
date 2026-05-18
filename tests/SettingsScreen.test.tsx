@@ -114,7 +114,7 @@ describe("Settings screen", () => {
     // Fresh mount — the Read textarea should start with the new default.
     result.unmount();
     renderApp();
-    const textarea = await screen.findByPlaceholderText(/日本語をペースト/);
+    const textarea = await screen.findByPlaceholderText(/日本語 or English/);
     expect(textarea).toHaveValue("別の例文");
   });
 

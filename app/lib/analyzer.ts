@@ -13,7 +13,9 @@ import {
   lookupGrammarCard,
   lookupVocabCard,
 } from "./engine/cards";
+import { lookupEnglish } from "./engine/englishLookup";
 import type { EngineResources } from "./engine/types";
+import { detectLanguage, type Direction } from "./lang";
 
 export type AnalysisStatus =
   | { kind: "idle" }
@@ -24,6 +26,10 @@ export type AnalysisStatus =
 
 export type AnalysisResult = {
   text: string;
+  /** Detected input language. Both directions produce a breakdown:
+   *  `"ja"` segments via the morphological engine, `"en"` segments via
+   *  greedy longest-match against the reverse gloss index. */
+  direction: Direction;
   tokens: import("../components/BreakdownChip").BreakdownToken[];
   cardItems: TermCardData[];
   english?: string;
@@ -32,15 +38,31 @@ export type AnalysisResult = {
 
 export const EMPTY_RESULT: AnalysisResult = {
   text: "",
+  direction: "ja",
   tokens: [],
   cardItems: [],
 };
 
 export type { EngineResources };
+export type { Direction };
 export { IGNORED_POS };
+export { detectLanguage };
 
 export function analyze(resources: EngineResources, text: string): AnalysisResult {
-  return engineAnalyze(resources, text);
+  const trimmed = text.trim();
+  if (!trimmed) return EMPTY_RESULT;
+  const direction = detectLanguage(trimmed);
+  if (direction === "en") {
+    const { tokens, cards } = lookupEnglish(resources, trimmed);
+    return {
+      text: trimmed,
+      direction: "en",
+      tokens,
+      cardItems: cards,
+    };
+  }
+  const inner = engineAnalyze(resources, text);
+  return { ...inner, direction: "ja" };
 }
 
 /** Re-resolve a stored favorite into a renderable TermCard against live

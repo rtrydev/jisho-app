@@ -88,7 +88,7 @@ export function HistoryScreen({
         {filtered.length === 0 ? (
           <div className="rc-empty">
             {history.entries.length === 0
-              ? "No analyses yet. Paste Japanese text on the Read screen to get started."
+              ? "No analyses yet. Look something up — Japanese or English — on the Read screen to get started."
               : "No entries match your filter."}
           </div>
         ) : (

@@ -564,6 +564,24 @@ body {
 .chip-vocab   { border-bottom: 2px solid var(--indigo-soft); }
 .chip-grammar { border-bottom: 2px solid var(--seal); background: var(--grammar-tint); }
 .chip-active  { box-shadow: 0 0 0 1.5px var(--seal); transform: translateY(-1px); }
+/* EN-mode chip variant: the surface holds English words (often multi-word
+ * phrases like "give up"), and the pos slot holds the JP headword the
+ * match resolves to. Both swap fonts and sizes relative to the JA default
+ * to make the script change unambiguous to the reader. */
+.chip-en .chip-surface {
+  font-family: var(--f-ui);
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.chip-en .chip-pos {
+  font-family: var(--f-jp);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-soft);
+}
+.chip-en.chip-particle .chip-surface { font-size: 13px; }
 .chip-punct {
   display: inline-flex; align-items: flex-end;
   font-family: var(--f-jp); font-size: 18px; color: var(--ink-faint);
@@ -689,6 +707,57 @@ body {
 }
 .card-vocab   .pos-pill { color: var(--indigo); }
 .card-grammar .pos-pill { color: var(--seal-ink); }
+
+/* EN→JP inverted card variant — head is the English query, body lists JP
+ * candidates. The English head uses the display serif (instead of the JP
+ * Mincho headword style) and runs flat-left without surface annotations,
+ * since the user typed it themselves and there's no JMdict surface form
+ * to show alongside.  */
+.card-en .card-headword-en {
+  font-size: 26px;
+  line-height: 1.2;
+  color: var(--ink);
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: -0.005em;
+}
+.card-en .card-head { margin-bottom: 12px; }
+
+.candidates {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.cand {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px dotted var(--line);
+}
+.cand:last-child { border-bottom: 0; }
+.cand-headline {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+}
+.cand-jp {
+  font-size: 18px;
+  line-height: 1.25;
+  color: var(--ink);
+  font-weight: 500;
+}
+.cand-jp rt { font-size: 9px; font-weight: 400; }
+.cand-pos { display: inline-flex; gap: 4px; flex-shrink: 0; }
+.cand-reading {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  margin-top: 1px;
+}
+.cand-disambig {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.cand-grammar .cand-jp { color: var(--seal-ink); }
+.cand-vocab   .cand-jp { color: var(--ink); }
 
 .card-reading {
   font-size: 13px; color: var(--ink-soft);

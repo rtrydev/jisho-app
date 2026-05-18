@@ -8,7 +8,7 @@ describe("Read screen", () => {
     renderApp();
 
     // The textarea is pre-filled with the default sentence on first mount.
-    const textarea = await screen.findByPlaceholderText(/日本語をペーストしてください/);
+    const textarea = await screen.findByPlaceholderText(/日本語 or English/);
     expect(textarea).toHaveValue(DEMO_SENTENCE);
 
     // Breakdown shows token count.
@@ -24,7 +24,7 @@ describe("Read screen", () => {
 
   it("typing a non-demo sentence wipes the breakdown and shows the empty hint", async () => {
     const { user } = renderApp();
-    const textarea = await screen.findByPlaceholderText(/日本語をペースト/);
+    const textarea = await screen.findByPlaceholderText(/日本語 or English/);
     await user.clear(textarea);
     await user.type(textarea, "知らない文章");
     await waitFor(() => {
@@ -100,11 +100,11 @@ describe("Read screen", () => {
 
   it("Collapsing the sticky input hides the textarea while keeping the breakdown visible", async () => {
     const { user } = renderApp();
-    const textarea = await screen.findByPlaceholderText(/日本語をペースト/);
+    const textarea = await screen.findByPlaceholderText(/日本語 or English/);
     expect(textarea).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: /collapse input/i }));
-    expect(screen.queryByPlaceholderText(/日本語をペースト/)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/日本語 or English/)).not.toBeInTheDocument();
     expect(screen.getByText(/Breakdown/)).toBeInTheDocument();
   });
 });

@@ -11,7 +11,17 @@ from __future__ import annotations
 import sys
 
 from .util import StageLog
-from . import stage0_acquire, stage1_words, stage2_sentences, stage3_readings, stage4_grammar, stage5_assemble, stage6_validate
+from . import (
+    stage0_acquire,
+    stage1_words,
+    stage2_sentences,
+    stage3_readings,
+    stage4_grammar,
+    stage5_assemble,
+    stage5b_gloss_index,
+    stage6_validate,
+)
+from .config import BUILD_MANIFEST_OUT
 
 
 def main(argv: list[str]) -> int:
@@ -34,14 +44,41 @@ def main(argv: list[str]) -> int:
         grammar_meta=stage0.grammar_metadata,
     )
 
-    stage6_validate.run(log, assembly["dict_obj"], grammar_merged)
+    # Stage 5b consumes the finalized words map (with sentence indices
+    # back-filled) and the merged grammar list so postings align 1:1 with the
+    # runtime resources.
+    gloss = stage5b_gloss_index.run(
+        log,
+        words=assembly["dict_obj"]["words"],
+        grammar_entries=grammar_merged,
+    )
+
+    outputs = {**assembly["outputs"], **gloss["outputs"]}
+    counts = {**assembly["counts"], **gloss["counts"]}
+    stage5_assemble.write_build_manifest(
+        assembly["sources"], assembly["grammar_meta"], outputs, counts
+    )
+    log.info(f"build manifest → {BUILD_MANIFEST_OUT.name}")
+
+    stage6_validate.run(
+        log, assembly["dict_obj"], grammar_merged, gloss_index=gloss["obj"]
+    )
 
     log.stage("Done")
-    counts = assembly["counts"]
     log.info(
         f"words={counts['words']:,}  readings={counts['readings']:,}  "
         f"sentences={counts['sentences']:,}  grammar={counts['grammar_entries']:,}  "
         f"entries-with-examples={counts['entries_with_examples']:,}"
+    )
+    log.info(
+        f"gloss-index vocab: u={counts['gloss_vocab_unigram_keys']:,}  "
+        f"p={counts['gloss_vocab_phrase_keys']:,}  "
+        f"postings={counts['gloss_vocab_unigram_postings'] + counts['gloss_vocab_phrase_postings']:,}"
+    )
+    log.info(
+        f"gloss-index grammar: u={counts['gloss_grammar_unigram_keys']:,}  "
+        f"p={counts['gloss_grammar_phrase_keys']:,}  "
+        f"postings={counts['gloss_grammar_unigram_postings'] + counts['gloss_grammar_phrase_postings']:,}"
     )
     return 0
 

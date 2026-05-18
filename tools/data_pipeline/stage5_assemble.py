@@ -194,7 +194,7 @@ def _write_attribution(
     ATTRIBUTION_OUT.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _write_build_manifest(
+def write_build_manifest(
     sources: list[SourceRecord],
     grammar_meta: GrammarMetadataResolved,
     outputs: dict[str, dict],
@@ -287,8 +287,8 @@ def run(
         "grammar_entries": len(grammar_merged),
         "entries_with_examples": sum(1 for k in entry_indices if entry_indices[k]),
     }
-    _write_build_manifest(sources, grammar_meta, outputs, counts)
-    log.info(f"build manifest → {BUILD_MANIFEST_OUT.name}")
+    # NOTE: build manifest is written by __main__ after Stage 5b so it can
+    # include the gloss-index artifact alongside dictionary/grammar.
     log.done()
 
     return {
@@ -299,4 +299,6 @@ def run(
         "dict_obj": dict_obj,
         "outputs": outputs,
         "counts": counts,
+        "sources": sources,
+        "grammar_meta": grammar_meta,
     }
