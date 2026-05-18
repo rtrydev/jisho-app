@@ -44,6 +44,8 @@
   --sh-2: 0 1px 2px rgba(28,26,20,.06), 0 0 0 .5px rgba(28,26,20,.06);
   --sh-3: 0 8px 24px -8px rgba(28,26,20,.12), 0 0 0 .5px rgba(28,26,20,.08);
   --sh-paper: inset 0 0 60px rgba(173,148,98,.10);
+
+  --jp-scale: 1;
 }
 
 [data-theme="dark"] {
@@ -229,7 +231,7 @@ body {
   }
 }
 
-.jp { font-family: var(--f-jp); }
+.jp { font-family: var(--f-jp); font-size: calc(1em * var(--jp-scale)); }
 .jp ruby rt { font-family: var(--f-jp); font-weight: 400; color: var(--ink-faint); }
 .serif { font-family: var(--f-display); font-feature-settings: "lnum","onum"; }
 .mono  { font-family: var(--f-mono); }
@@ -357,7 +359,7 @@ body {
 }
 .rail-item:hover { background: rgba(0,0,0,0.03); color: var(--ink); }
 .rail-kanji {
-  font-size: 16px; color: var(--ink-faint); width: 24px; text-align: center; line-height: 1;
+  font-size: calc(16px * var(--jp-scale)); color: var(--ink-faint); width: 24px; text-align: center; line-height: 1;
   font-weight: 500;
 }
 .rail-active {
@@ -393,7 +395,7 @@ body {
    (客 ・ 静 ・ 読 — guest, quiet, read). */
 .app-topbar-marginalia {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--jp-scale));
   letter-spacing: 0.25em;
   color: var(--ink-ghost);
   font-weight: 300;
@@ -522,8 +524,8 @@ body {
   border-right: 1.5px solid var(--seal); border-bottom: 1.5px solid var(--seal);
   opacity: 0.7;
 }
-.ri-jp { font-size: 26px; line-height: 1.7; color: var(--ink); letter-spacing: 0.01em; }
-@media (max-width: 820px) { .ri-jp { font-size: 19px; line-height: 1.7; } }
+.ri-jp { font-size: calc(26px * var(--jp-scale)); line-height: 1.7; color: var(--ink); letter-spacing: 0.01em; }
+@media (max-width: 820px) { .ri-jp { font-size: calc(19px * var(--jp-scale)); line-height: 1.7; } }
 .ri-trans {
   margin-top: 12px; padding-left: 4px;
   font-size: 15px; font-style: italic;
@@ -551,6 +553,7 @@ body {
   font-family: var(--f-jp);
   color: var(--ink);
 }
+.chip-surface.jp { font-size: calc(18px * var(--jp-scale)); }
 .chip-surface rt { font-size: 9px; }
 .chip-pos {
   font-family: var(--f-mono); font-size: 9px;
@@ -561,6 +564,7 @@ body {
 }
 .chip-particle { background: transparent; border-style: dashed; opacity: 0.85; }
 .chip-particle .chip-surface { color: var(--ink-soft); font-size: 14px; }
+.chip-particle .chip-surface.jp { font-size: calc(14px * var(--jp-scale)); }
 .chip-vocab   { border-bottom: 2px solid var(--indigo-soft); }
 .chip-grammar { border-bottom: 2px solid var(--seal); background: var(--grammar-tint); }
 .chip-active  { box-shadow: 0 0 0 1.5px var(--seal); transform: translateY(-1px); }
@@ -587,6 +591,7 @@ body {
   font-family: var(--f-jp); font-size: 18px; color: var(--ink-faint);
   padding: 6px 4px; flex-shrink: 0;
 }
+.chip-punct.jp { font-size: calc(18px * var(--jp-scale)); }
 
 .rb-legend {
   margin-top: 10px; display: flex; gap: 14px;
@@ -694,7 +699,7 @@ body {
   .card-head { padding-right: 140px; }
 }
 .card-headword { display: flex; flex-direction: column; gap: 3px; }
-.card-headword-jp { font-size: 28px; line-height: 1.25; color: var(--ink); font-weight: 500; }
+.card-headword-jp { font-size: calc(28px * var(--jp-scale)); line-height: 1.25; color: var(--ink); font-weight: 500; }
 .card-headword-jp rt { font-size: 10px; font-weight: 400; }
 .card-surface { font-size: 10px; color: var(--ink-faint); letter-spacing: 0.04em; }
 .card-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding-top: 6px; }
@@ -738,7 +743,7 @@ body {
   gap: 12px;
 }
 .cand-jp {
-  font-size: 18px;
+  font-size: calc(18px * var(--jp-scale));
   line-height: 1.25;
   color: var(--ink);
   font-weight: 500;
@@ -766,7 +771,7 @@ body {
   border-bottom: 1px dotted var(--line);
   letter-spacing: 0.02em;
 }
-.card-reading .jp { font-size: 14px; }
+.card-reading .jp { font-size: calc(14px * var(--jp-scale)); }
 .card-reading .mono { font-size: 11px; letter-spacing: 0.04em; }
 
 .card-formula {
@@ -836,7 +841,7 @@ body {
 }
 .conj-cell:last-child { border-right: none; }
 .conj-form { font-family: var(--f-mono); font-size: 9px; color: var(--ink-faint); letter-spacing: 0.04em; text-transform: uppercase; }
-.conj-val { font-size: 14px; color: var(--ink); margin-top: 2px; }
+.conj-val { font-size: calc(14px * var(--jp-scale)); color: var(--ink); margin-top: 2px; }
 
 .card-examples { margin-top: 14px; }
 .ex-label {
@@ -912,7 +917,7 @@ body {
   box-shadow: 0 0 0 3px var(--seal-glow);
 }
 .hrow-text {
-  font-size: 16px; line-height: 1.4;
+  font-size: calc(16px * var(--jp-scale)); line-height: 1.4;
   color: var(--ink);
   display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
   overflow: hidden;
@@ -955,6 +960,7 @@ body {
   color: var(--ink); min-width: 260px;
   outline: none;
 }
+.text-field.jp { font-size: calc(14px * var(--jp-scale)); }
 .text-field:focus { border-color: var(--seal); box-shadow: 0 0 0 1px var(--seal-glow); }
 
 /* ─── Segmented control ───────────────────────────────────────────── */
@@ -1012,7 +1018,7 @@ body {
   width: 36px; height: 36px;
   background: var(--paper-sink); border: 1px solid var(--line);
   border-radius: 2px;
-  font-size: 18px; color: var(--ink-soft);
+  font-size: calc(18px * var(--jp-scale)); color: var(--ink-soft);
   flex: 0 0 auto;
 }
 .set-row {
@@ -1151,9 +1157,10 @@ body {
 .ink-ghost { color: var(--ink-ghost); }
 .ink-soft  { color: var(--ink-soft); }
 
-/* JP scale */
-[data-jp-scale="S"] .jp { font-size: 0.92em; }
-[data-jp-scale="L"] .jp { font-size: 1.08em; }
+/* JP scale — sets --jp-scale on the root so every component rule can
+   multiply its base size by calc(Xpx * var(--jp-scale)) */
+[data-jp-scale="S"] { --jp-scale: 0.85; }
+[data-jp-scale="L"] { --jp-scale: 1.20; }
 
 /* ─── Screen containers ────────────────────────────────────────────── */
 /* Scrollable flex child: `flex: 1 1 0` + `min-height: 0` is the only combo
@@ -1358,7 +1365,11 @@ body {
   letter-spacing: 0.01em; outline: none;
   min-height: 1.7em;
 }
-@media (max-width: 820px) { .ri-textarea { font-size: 19px; } }
+.ri-textarea.jp { font-size: calc(26px * var(--jp-scale)); }
+@media (max-width: 820px) {
+  .ri-textarea { font-size: 19px; }
+  .ri-textarea.jp { font-size: calc(19px * var(--jp-scale)); }
+}
 
 /* Breakdown */
 .read-breakdown {
@@ -1383,6 +1394,7 @@ body {
 @media (max-width: 820px) {
   .chip { padding: 12px 8px 4px; min-width: 36px; }
   .chip-surface { font-size: 15px; }
+  .chip-surface.jp { font-size: calc(15px * var(--jp-scale)); }
 }
 
 /* Cards section */

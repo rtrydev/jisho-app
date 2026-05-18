@@ -24,7 +24,7 @@ Everything that needs to vary by theme/accent/furigana/scale is driven by data-a
 | `data-theme` | `light`, `dark` | Swaps the entire token palette |
 | `data-accent` | `seal` (default), `indigo`, `sumi` | Remaps `--seal` + grammar tints |
 | `data-furigana` | `always`, `hover`, `off` | Controls visibility of `<rt>` inside `.jp ruby` |
-| `data-jp-scale` | `S`, `M`, `L` | Scales `.jp` glyphs ±8% |
+| `data-jp-scale` | `S`, `M`, `L` | Sets `--jp-scale` (S = 0.85, M = 1, L = 1.20). Each component rule that sizes `.jp` text multiplies its base size by `var(--jp-scale)` via `calc(Xpx * var(--jp-scale))`. |
 
 No component computes its own colors. No component touches `document.documentElement` directly — drive these from a single settings provider when one is built.
 
