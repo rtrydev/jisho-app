@@ -66,16 +66,31 @@ export function analyze(resources: EngineResources, text: string): AnalysisResul
 }
 
 /** Re-resolve a stored favorite into a renderable TermCard against live
- *  resources. Returns null if the resources don't have the entry — favorites
- *  are *references*, not snapshots, so a swapped-out grammar bank can legally
- *  leave a favorite orphaned. */
+ *  resources. Tries `dictKey` first; if that misses (older stub-built keys
+ *  like "watashi", entries renamed between dictionary builds), falls back to
+ *  the saved `surface` form, which is the kanji/kana the user actually saw.
+ *  Returns null only when neither key resolves — favorites are *references*,
+ *  not snapshots, so a swapped-out dictionary can legally orphan one. */
 export function getDictionaryEntry(
   resources: EngineResources,
   type: "vocab" | "grammar",
   dictKey: string,
+  surface?: string,
 ): TermCardData | null {
-  if (type === "vocab") return lookupVocabCard(resources.dictionary, dictKey);
-  return lookupGrammarCard(resources.grammar, dictKey);
+  if (type === "vocab") {
+    const direct = lookupVocabCard(resources.dictionary, dictKey);
+    if (direct) return direct;
+    if (surface && surface !== dictKey) {
+      return lookupVocabCard(resources.dictionary, surface);
+    }
+    return null;
+  }
+  const direct = lookupGrammarCard(resources.grammar, dictKey);
+  if (direct) return direct;
+  if (surface && surface !== dictKey) {
+    return lookupGrammarCard(resources.grammar, surface);
+  }
+  return null;
 }
 
 /** Stable dictKey for a card. The id format is `<v|g>-<dictKey>` so we can

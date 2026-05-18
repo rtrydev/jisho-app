@@ -90,14 +90,17 @@ export function FavoritesScreen() {
 
   const shown = tab === "vocab" ? vocab : grammar;
 
-  // Re-resolve full cards live from the dictionary.
+  // Re-resolve full cards live from the dictionary. We pass `surface` as a
+  // fallback key so old stub-era favorites (e.g. dictKey "watashi", surface
+  // "私") still resolve against the real dictionary even though the originally
+  // stored key was a romaji placeholder.
   const cards = useMemo(() => {
     const out: Array<{
       entry: (typeof shown)[number];
       card: NonNullable<ReturnType<typeof getEntry>>;
     }> = [];
     for (const e of shown) {
-      const card = getEntry(e.type, e.dictKey);
+      const card = getEntry(e.type, e.dictKey, e.surface);
       if (card) out.push({ entry: e, card });
     }
     return out;
@@ -190,7 +193,7 @@ export function FavoritesScreen() {
           <div className="fav-empty">
             {shown.length === 0
               ? `No ${handleType} favorites yet. Save terms from the Read screen.`
-              : `${shown.length} saved — but the dictionary doesn't expose these keys in the current stub.`}
+              : `${shown.length} saved, but the current dictionary build has no entry for ${shown.length === 1 ? "it" : "them"}.`}
           </div>
         ) : mobile ? (
           <div className="fav-grid">

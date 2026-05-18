@@ -27,12 +27,15 @@ export type EngineContextValue = {
    *  if it can be computed synchronously, otherwise EMPTY_RESULT. */
   run: (text: string) => AnalysisResult;
   clear: () => void;
-  /** Look up a stored favorite against the live dictionary. Returns null when
-   *  the engine isn't ready yet, or when the key isn't in the current
-   *  resources. */
+  /** Look up a stored favorite against the live dictionary. `surface` is an
+   *  optional fallback key — used when the saved `dictKey` (e.g., a romaji
+   *  stub key from an older build) doesn't resolve against the current
+   *  resources. Returns null when the engine isn't ready yet, or when
+   *  neither key is in the current resources. */
   getEntry: (
     type: "vocab" | "grammar",
     dictKey: string,
+    surface?: string,
   ) => TermCardData | null;
 };
 
@@ -128,9 +131,9 @@ export function EngineProvider({
   }, [resources, status]);
 
   const getEntry = useCallback(
-    (type: "vocab" | "grammar", dictKey: string) => {
+    (type: "vocab" | "grammar", dictKey: string, surface?: string) => {
       if (!resources) return null;
-      return resolveEntry(resources, type, dictKey);
+      return resolveEntry(resources, type, dictKey, surface);
     },
     [resources],
   );
