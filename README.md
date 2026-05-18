@@ -1,22 +1,30 @@
 # Jisho · 辞書
 
-A quiet, offline-first workspace for reading Japanese. Paste a sentence and the
-app segments it morphologically, looks up vocabulary against JMdict, matches
-multi-token grammar patterns against a Yomitan-style grammar bank, and renders
-an interactive breakdown plus detailed term cards with furigana, glosses, and
-example sentences.
+A quiet, offline-first workspace for reading Japanese — and for finding the
+right word when all you have is the English. The input direction is detected
+automatically: Japanese sentences are segmented morphologically against JMdict
+and a Yomitan-style grammar bank; English queries are segmented by greedy
+longest-match against a pre-built reverse gloss index over the same two
+dictionaries. Either path renders an interactive breakdown plus detailed term
+cards.
 
 Everything runs in the browser. There is no backend, no account system, and no
-server-side state — the dictionary, grammar bank, and morphology engine are all
-shipped as static assets and processed locally.
+server-side state — the dictionary, grammar bank, gloss index, and morphology
+engine are all shipped as static assets and processed locally.
 
 Live at [jisho.rtrydev.com](https://jisho.rtrydev.com).
 
 ## What's in the box
 
-- **Read** — the home screen. Paste Japanese, get a per-token breakdown and a
-  deduplicated set of vocab + grammar term cards. URL `?q=…` is kept in sync so
-  the current query is shareable / refreshable.
+- **Read** — the home screen. Type or paste Japanese OR English; the input
+  language is detected by script. Japanese inputs produce a morphological
+  breakdown with a deduplicated set of vocab + grammar term cards. English
+  inputs produce a dictionary-driven breakdown with *inverted* cards — the
+  head is your English query and the body lists the top JP translation
+  candidates (kana reading, POS, disambiguation gloss per row). Multi-word
+  expressions like "give up", "in spite of", and "as soon as possible" stay as
+  single chips because the matched gloss says they belong together. URL
+  `?q=…` is kept in sync so the current query is shareable / refreshable.
 - **History** — every successful analysis is recorded locally and replayable.
 - **Favorites** — save individual vocab or grammar terms; they're stored as
   dictionary references, not snapshots, so they re-resolve against the live
@@ -40,8 +48,12 @@ Live at [jisho.rtrydev.com](https://jisho.rtrydev.com).
   in [app/components/](app/components/) driven entirely by CSS variables and
   `data-*` attributes on `<html>`. See [AGENTS.md](AGENTS.md) for the
   rules — design tokens, components, and theme contract.
-- **Engine:** kuromoji + IPADIC for morphology; JMdict (English) for vocab; a
-  Yomitan v3 grammar bank for grammar pattern matching. All wrapped behind a
+- **Engines:** kuromoji + IPADIC for the JP morphology path; JMdict (English)
+  for vocab; a Yomitan v3 grammar bank for grammar pattern matching; and a
+  pre-built reverse English-gloss index (built in stage 5b of the pipeline,
+  queried by [app/lib/engine/englishLookup.ts](app/lib/engine/englishLookup.ts))
+  for the EN path. A codepoint-based language detector
+  ([app/lib/lang.ts](app/lib/lang.ts)) routes the input. All wrapped behind a
   single `useAnalyzer` hook ([app/lib/analyzer.ts](app/lib/analyzer.ts)).
 - **Persistence:** `localStorage` under the `jp:v2:*` namespace with versioned
   payloads and graceful in-memory fallback when quota / private mode bite.
@@ -89,11 +101,15 @@ Available scripts:
 
 ### Runtime data assets
 
-The app expects three files under [public/data/](public/data/):
+The app expects four files under [public/data/](public/data/):
 
-- `dictionary.json.gz`
-- `grammar.json.gz`
-- `grammar-manifest.json`
+- `dictionary.json.gz` — JMdict words + linked example sentences (JP path).
+- `grammar.json.gz` + `grammar-manifest.json` — merged Yomitan grammar bank
+  (JP path).
+- `gloss-index.json.gz` — reverse English-gloss index covering both vocab and
+  grammar (EN path). Posting scores combine a canonicity bucket (sense × gloss
+  position) with a quality score, so the canonical translation of a token
+  outranks deep-sense coincidences.
 
 These are produced by the Python data pipeline in [tools/](tools/) and are
 **not committed**. Without them the engine will boot but every lookup will fail

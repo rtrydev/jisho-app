@@ -21,6 +21,7 @@ The driver prints stage timings to stderr. Outputs:
 | `public/data/dictionary.json.gz` | Gzipped `{meta, words, readings, sentences}` blob — the v1 schema, preserved as a drop-in. |
 | `public/data/grammar.json.gz` | Single merged grammar artifact (Yomitan v3 entries concatenated). |
 | `public/data/grammar-manifest.json` | Loader manifest: artifact path(s) + source metadata. v2's only grammar discovery surface. |
+| `public/data/gloss-index.json.gz` | Reverse English-gloss index for the EN→JP lookup path. Two sections (vocab, grammar), each with unigram and 2..4-gram phrase posting maps. Postings carry a canonicity-bucket-encoded score so the runtime can rank without re-reading the entry. |
 | `public/data/ATTRIBUTION.md` | Per-source license + checksum block. EDRDG redistribution requirement. |
 | `public/data/build-manifest.json` | Pinned source SHAs, policy knobs, output SHAs — proves a given deploy matches a given build. |
 
@@ -34,7 +35,8 @@ The driver prints stage timings to stderr. Outputs:
 | 3 | `stage3_readings` | Builds the kana → `[kanji, …]` inverse index used by the parser's fallback path; ordered by descending frequency score. |
 | 4 | `stage4_grammar` | Validates every term-bank entry (8-tuple, structured-content body, three `【 … 】` markers, JLPT level in index 7), then concatenates entries across files sorted by their numeric suffix. |
 | 5 | `stage5_assemble` | Caps examples per entry (default 3, shortest first), drops sentences that ended up unreferenced, assigns indices in one deterministic pass, gzips the bundle, and writes the manifest + attribution. |
-| 6 | `stage6_validate` | Build-failing checks: schema shape, sentence-index integrity, tokenizer alignment on common probes, readings round-trip, grammar renderability, manifest consistency, gzip integrity. |
+| 5b | `stage5b_gloss_index` | Walks the finalized vocab map and the merged grammar bank, normalizes each gloss (lowercase → strip parentheticals → drop stopwords → naïve suffix-stem), and emits unigram + 2..4-gram phrase posting maps for both kinds. The normalizer here is the runtime twin of [`app/lib/engine/glossQuery.ts`](../app/lib/engine/glossQuery.ts) — divergence silently kills recall. |
+| 6 | `stage6_validate` | Build-failing checks: schema shape, sentence-index integrity, tokenizer alignment on common probes, readings round-trip, grammar renderability, manifest consistency, gzip integrity. Also validates the gloss index — per-section bounds, posting integrity (every `(head, sense)` row resolves), and a size budget. |
 
 ## Policy knobs
 
@@ -45,6 +47,9 @@ All in [`data_pipeline/config.py`](data_pipeline/config.py):
 - `pos_policy` — `"short"` stores JMdict entity names (`n`, `v5r`); the parser keys on these.
 - `gzip_level` — deterministic gzip level (no mtime, no filename header).
 - `GRAMMAR_METADATA` — fields used when the Yomitan ZIP has no `index.json`. Pinned to the current `data/grammar.zip` snapshot.
+- `GLOSS_STOPWORDS` — English words filtered before indexing / querying. Keeps articles, prepositions, conjunctions, and inflected auxiliaries; intentionally retains base verbs (be/have/do), modals, negations, and content pronouns so they're searchable. The runtime stopword list in `app/lib/engine/glossQuery.ts` must stay aligned.
+- `gloss_max_phrase_len` — max n-gram length emitted under the `p` posting maps (default 4).
+- `gloss_max_postings_per_key` — per-key posting cap (default 200), applied after sort by canonicity bucket × quality.
 
 ## Reproducibility
 

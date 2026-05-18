@@ -26,14 +26,15 @@ for arg in "$@"; do
   esac
 done
 
-# The runtime data assets (dictionary + grammar) are produced by
-# `tools/data-pipeline/` and not committed. `next build` will happily
+# The runtime data assets (dictionary + grammar + gloss index) are produced
+# by `tools/data-pipeline/` and not committed. `next build` will happily
 # copy an empty `public/data/` into `out/`, which would deploy a broken
 # bundle — so check up front.
 REQUIRED_DATA=(
   "$REPO_ROOT/public/data/dictionary.json.gz"
   "$REPO_ROOT/public/data/grammar.json.gz"
   "$REPO_ROOT/public/data/grammar-manifest.json"
+  "$REPO_ROOT/public/data/gloss-index.json.gz"
 )
 for f in "${REQUIRED_DATA[@]}"; do
   if [[ ! -f "$f" ]]; then
