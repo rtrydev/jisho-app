@@ -178,6 +178,15 @@
 
 /* ─── App shell baselines ─────────────────────────────────────────── */
 html, body { height: 100%; margin: 0; }
+/* The app shell is fixed-height (`.app { overflow: hidden; height: 100dvh }`)
+   and never scrolls at the document level, but Safari still plays a
+   rubber-band animation on the document for trackpad gestures that
+   reach the html/body. Disabling overscroll at the root keeps those
+   gestures from drifting into a "scroll target switched" state where
+   subsequent input is consumed by the wrong scroller — the same
+   underlying cause of the bug where pulling past a screen's edge
+   left the inner scroller temporarily unresponsive. */
+html, body { overscroll-behavior: none; }
 body {
   background: var(--paper);
   color: var(--ink);
@@ -1176,10 +1185,19 @@ body {
   /* No bottom padding — the breathing room above the BottomTabs lives
      *inside* `.screen-body` (its `padding-bottom`), so it scrolls away
      with the content. That makes the BottomTabs the visible clip
-     boundary at the bottom, just as the header rule is at the top. */
-  padding: 18px 16px 0;
+     boundary at the bottom, just as the header rule is at the top.
+     No horizontal padding either: the page-side inset lives on
+     individual children so the inner scroller (`.screen-body`) can
+     span the full width and put its scrollbar flush with the screen
+     edge instead of being inset by this padding. Same pattern as
+     `.read` / `.read-body`. */
+  padding: 18px 0 0;
   display: flex; flex-direction: column; gap: 16px;
-  overflow-y: auto;
+  /* `.screen` is no longer the scroll container — `.screen-body`
+     owns the scroll. Clipping keeps the seam clean if a child ever
+     overflows (e.g. extreme zoom); `overscroll-behavior` now lives
+     on `.screen-body`. */
+  overflow: hidden;
 }
 /* Direct children must NOT flex-shrink. Without this, `.hlist` (which has
    `overflow: hidden` for its rounded corners) gets squeezed down to its
@@ -1187,6 +1205,25 @@ body {
    never sees layout overflow, so its `overflow-y: auto` never produces a
    scrollbar. Same trap applies to `.fav-grid` and `.read-cards`. */
 .screen > * { flex-shrink: 0; }
+
+/* Page-side inset for History / Favorites / Settings. Applied to
+   `.screen-body`'s children (so they sit inside the scrollbar
+   gutter while the scrollbar itself reaches the screen edge) and to
+   non-header direct children of `.screen` like the Favorites tab
+   strip. `.sc-head` is skipped because it manages its own internal
+   horizontal padding so its bottom rule can span full width. Using
+   `margin-inline` rather than `padding-inline` keeps it compatible
+   with elements that already define their own inner padding
+   (`.rc-empty`, `.fav-empty`, `.storage-notice`).
+
+   `.screen.read` is excluded — Read has its own padding rules
+   keyed off `.read-input` and `.read-body > *`. */
+.screen-body > *,
+.screen:not(.read) > *:not(.sc-head):not(.screen-body) { margin-inline: 16px; }
+@media (min-width: 821px) {
+  .screen-body > *,
+  .screen:not(.read) > *:not(.sc-head):not(.screen-body) { margin-inline: 36px; }
+}
 
 /* Inner scroll region used by History/Favorites so the screen header
    (title, filter, tabs) stays pinned while only the list/grid scrolls.
@@ -1197,6 +1234,10 @@ body {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
+  /* Same chaining guard as `.screen` — needed because History /
+     Favorites nest a second scroller inside the screen, and the
+     rubber-band edge case shows up at either level. */
+  overscroll-behavior: contain;
   display: flex; flex-direction: column; gap: 16px;
   padding-bottom: 16px;
 }
@@ -1219,7 +1260,7 @@ body {
 }
 @media (min-width: 821px) {
   .screen {
-    padding: 28px 36px 0;
+    padding: 28px 0 0;
     gap: 22px;
   }
 }
@@ -1227,18 +1268,15 @@ body {
 .sc-head {
   display: flex; justify-content: space-between; align-items: flex-end;
   gap: 12px;
-  /* Negative horizontal margins (matched by equal horizontal padding) push
-     the sc-head box out to the screen's outer edges so its bottom rule
-     spans full width — matching the Read screen's analysis-header rule.
-     The content stays in place because the padding cancels the margin
-     for inner-flow purposes. */
-  margin-left: -16px; margin-right: -16px;
+  /* `.sc-head` already spans the full width of `.screen` (no parent
+     horizontal padding to cancel), so the bottom rule reaches both
+     screen edges naturally. The internal padding here keeps the
+     title/actions inset from the screen edge. */
   padding: 0 16px 12px;
   border-bottom: 1px solid var(--line);
 }
 @media (min-width: 821px) {
   .sc-head {
-    margin-left: -36px; margin-right: -36px;
     padding: 0 36px 12px;
   }
 }
@@ -1287,21 +1325,47 @@ body {
 }
 
 /* ─── Read screen ──────────────────────────────────────────────────── */
-/* The whole read screen scrolls as one column so the breakdown moves with
-   the terms list. The input on top stays put via `position: sticky`.
-   Layout is viewport-driven, NOT keyed off a `.mobile` / `.desktop` JSX
-   class — that's what avoids the brief desktop layout flash on mobile
-   refresh. The screen's `mobile`-prop value is still used for JS-only
-   behaviors (sheet vs scroll) where the difference is unavoidable. */
+/* Two-region layout: `.read-input` is pinned at the top by flex sizing
+   (NOT `position: sticky`), and `.read-body` owns the scroll. Pinning
+   via flex — rather than sticky inside a single scroll container —
+   means the native scrollbar lives entirely below the Analysis bar
+   instead of running behind it. `.read-body` also sets
+   `overscroll-behavior: contain` so rubber-band momentum at either
+   edge cannot chain out to `.app-main` / the document and strand the
+   gesture mid-scroll.
+
+   Layout is viewport-driven, NOT keyed off a `.mobile` / `.desktop`
+   JSX class — that's what avoids the brief desktop layout flash on
+   mobile refresh. The screen's `mobile`-prop value is still used for
+   JS-only behaviors (sheet vs scroll) where the difference is
+   unavoidable. */
 .read {
   padding: 0; gap: 0;
-  overflow-y: auto; overflow-x: hidden;
+  /* No `overflow-y` here — the inner `.read-body` is the scroll
+     container. Setting it on the outer container would re-introduce
+     the scrollbar-behind-Analysis-bar problem. */
+  overflow: hidden;
   display: flex; flex-direction: column;
   min-width: 0;
 }
-.read > * { padding-left: 16px; padding-right: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
+.read-body {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  display: flex; flex-direction: column;
+}
+/* Horizontal page padding applies to the Analysis bar (direct child of
+   `.read`) and to every region inside the scroll body — but NOT to
+   `.read-body` itself, so its scrollbar can sit flush against the
+   screen edge. */
+.read > .read-input,
+.read-body > * { padding-left: 16px; padding-right: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
 @media (min-width: 821px) {
-  .read > * { padding-left: 36px; padding-right: 36px; max-width: none; }
+  .read > .read-input,
+  .read-body > * { padding-left: 36px; padding-right: 36px; max-width: none; }
 }
 
 .read-input {
@@ -1309,11 +1373,11 @@ body {
   border-bottom: 1px solid var(--line);
   background: var(--paper);
   position: relative;
+  flex: 0 0 auto;
 }
 @media (min-width: 821px) {
   .read-input { padding-top: 28px; padding-bottom: 20px; }
 }
-.read-input.sticky { position: sticky; top: 0; z-index: 5; }
 /* Collapsed state hides the textarea — keep the section's top padding
    matching the expanded state, and mirror it on the bottom so the
    disclosure row sits symmetrically between the rules. The heading's

@@ -226,8 +226,10 @@ export function ReadScreen({
 
   return (
     <div className="screen read">
-      {/* Sticky input */}
-      <section className={`read-input sticky${collapsed ? " read-input-collapsed" : ""}`}>
+      {/* Analysis input — pinned at the top of the screen by flex layout
+          (not `position: sticky`), so the scrollbar of the body region
+          below cannot run behind it. */}
+      <section className={`read-input${collapsed ? " read-input-collapsed" : ""}`}>
         <div className="ri-head">
           <button
             type="button"
@@ -287,107 +289,112 @@ export function ReadScreen({
         )}
       </section>
 
-      {/* Breakdown */}
-      {result.tokens.length > 0 && (
-        <section className="read-breakdown">
-          <div className="rb-label">
-            <span>Breakdown</span>
-            <span className="ink-faint mono">
-              {" "}
-              · {meaningfulTokenCount} token{meaningfulTokenCount === 1 ? "" : "s"}
-            </span>
-          </div>
-          <div className="rb-chips thin-scroll">
-            {result.tokens.map((t, i) => (
-              <BreakdownChip
-                key={i}
-                token={t}
-                active={!!t.cardId && activeChip === t.cardId}
-                onClick={() => onChipClick(t.cardId)}
-              />
-            ))}
-          </div>
-          <BreakdownLegend />
-        </section>
-      )}
-
-      {/* Cards */}
-      <section className="read-cards read-cards-wrap">
-        <div className="rc-head">
-          <span className="rc-title">
-            Terms <span className="ink-faint mono">· {result.cardItems.length}</span>
-          </span>
-          {result.cardItems.length > 0 && (
-            <Segmented<Filter>
-              value={filter}
-              options={["all", "vocab", "grammar"]}
-              onChange={setFilter}
-              ariaLabel="Filter terms"
-            />
-          )}
-        </div>
-        {visibleCards.length === 0 ? (
-          <div className="rc-empty">
-            {status.kind === "loading"
-              ? `${status.step} ${Math.round(status.progress * 100)}%`
-              : status.kind === "error"
-                ? `Engine failed to load: ${status.message}`
-                : result.cardItems.length === 0
-                  ? text.trim()
-                    ? result.direction === "en"
-                      ? "No entries match this English query."
-                      : "No analysis available for this input."
-                    : "Type Japanese or English above to look up — the input direction is detected automatically."
-                  : "No terms match this filter."}
-          </div>
-        ) : mobile ? (
-          <div className="rc-grid">
-            {visibleCards.map((c) => (
-              <div
-                key={c.id}
-                ref={(node) => {
-                  if (node) cardRefs.current.set(c.id, node);
-                  else cardRefs.current.delete(c.id);
-                }}
-              >
-                <TermCard
-                  card={c}
-                  favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
-                  onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
-                  onCopy={() => onCardCopy(c)}
-                  onShare={() => onCardShare(c)}
-                  highlight={pulseId === c.id}
+      {/* Scrollable body — owns the scrollbar so it cannot run behind the
+          Analysis bar above, and `overscroll-behavior: contain` keeps
+          rubber-band momentum from chaining out to ancestors. */}
+      <div className="read-body">
+        {/* Breakdown */}
+        {result.tokens.length > 0 && (
+          <section className="read-breakdown">
+            <div className="rb-label">
+              <span>Breakdown</span>
+              <span className="ink-faint mono">
+                {" "}
+                · {meaningfulTokenCount} token{meaningfulTokenCount === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="rb-chips thin-scroll">
+              {result.tokens.map((t, i) => (
+                <BreakdownChip
+                  key={i}
+                  token={t}
+                  active={!!t.cardId && activeChip === t.cardId}
+                  onClick={() => onChipClick(t.cardId)}
                 />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="rc-grid rc-grid-cols">
-            {cardColumns.map((col, colIdx) => (
-              <div className="rc-col" key={colIdx}>
-                {col.map((c) => (
-                  <div
-                    key={c.id}
-                    ref={(node) => {
-                      if (node) cardRefs.current.set(c.id, node);
-                      else cardRefs.current.delete(c.id);
-                    }}
-                  >
-                    <TermCard
-                      card={c}
-                      favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
-                      onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
-                      onCopy={() => onCardCopy(c)}
-                      onShare={() => onCardShare(c)}
-                      highlight={pulseId === c.id}
-                    />
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <BreakdownLegend />
+          </section>
         )}
-      </section>
+
+        {/* Cards */}
+        <section className="read-cards read-cards-wrap">
+          <div className="rc-head">
+            <span className="rc-title">
+              Terms <span className="ink-faint mono">· {result.cardItems.length}</span>
+            </span>
+            {result.cardItems.length > 0 && (
+              <Segmented<Filter>
+                value={filter}
+                options={["all", "vocab", "grammar"]}
+                onChange={setFilter}
+                ariaLabel="Filter terms"
+              />
+            )}
+          </div>
+          {visibleCards.length === 0 ? (
+            <div className="rc-empty">
+              {status.kind === "loading"
+                ? `${status.step} ${Math.round(status.progress * 100)}%`
+                : status.kind === "error"
+                  ? `Engine failed to load: ${status.message}`
+                  : result.cardItems.length === 0
+                    ? text.trim()
+                      ? result.direction === "en"
+                        ? "No entries match this English query."
+                        : "No analysis available for this input."
+                      : "Type Japanese or English above to look up — the input direction is detected automatically."
+                    : "No terms match this filter."}
+            </div>
+          ) : mobile ? (
+            <div className="rc-grid">
+              {visibleCards.map((c) => (
+                <div
+                  key={c.id}
+                  ref={(node) => {
+                    if (node) cardRefs.current.set(c.id, node);
+                    else cardRefs.current.delete(c.id);
+                  }}
+                >
+                  <TermCard
+                    card={c}
+                    favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
+                    onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
+                    onCopy={() => onCardCopy(c)}
+                    onShare={() => onCardShare(c)}
+                    highlight={pulseId === c.id}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rc-grid rc-grid-cols">
+              {cardColumns.map((col, colIdx) => (
+                <div className="rc-col" key={colIdx}>
+                  {col.map((c) => (
+                    <div
+                      key={c.id}
+                      ref={(node) => {
+                        if (node) cardRefs.current.set(c.id, node);
+                        else cardRefs.current.delete(c.id);
+                      }}
+                    >
+                      <TermCard
+                        card={c}
+                        favorite={isInvertedCard(c) ? undefined : isFavorite(c.type, dictKeyOf(c))}
+                        onToggleFavorite={isInvertedCard(c) ? undefined : () => onCardFavorite(c)}
+                        onCopy={() => onCardCopy(c)}
+                        onShare={() => onCardShare(c)}
+                        highlight={pulseId === c.id}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
 
       {/* Vertical kanji marginalia (desktop only) */}
       {!mobile && (
