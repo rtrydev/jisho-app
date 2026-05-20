@@ -69,11 +69,15 @@ export function AppShell({
     <div className="app paper-tex">
       <SideRail<ScreenId> items={RAIL_ITEMS} active={active} onChange={onChange} />
       <header className="app-topbar" aria-label="App">
-        <Hanko size="md" />
-        <div className="app-topbar-text">
-          <span className="serif app-topbar-title">Jisho</span>
-          <span className="mono app-topbar-sub">辞書</span>
-        </div>
+        <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} style={{ display: "contents" }}>
+          <Hanko size="md" />
+        </a>
+        <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} style={{ display: "contents" }}>
+          <div className="app-topbar-text">
+            <span className="serif app-topbar-title">Jisho</span>
+            <span className="mono app-topbar-sub">辞書</span>
+          </div>
+        </a>
         <span className="jp app-topbar-marginalia" aria-hidden="true">
           和 ・ 訳 ・ 英
         </span>

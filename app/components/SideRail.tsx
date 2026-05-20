@@ -24,13 +24,13 @@ export function SideRail<T extends string>({
 }) {
   return (
     <nav className="rail" aria-label="Primary">
-      <div className="rail-brand">
+      <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} className="rail-brand">
         <Hanko />
         <div className="rail-brand-text">
           <div className="serif rail-title">{brand}</div>
           <div className="rail-sub mono">{subtitle}</div>
         </div>
-      </div>
+      </a>
       <ul className="rail-list">
         {items.map((it) => (
           <li key={it.id}>
