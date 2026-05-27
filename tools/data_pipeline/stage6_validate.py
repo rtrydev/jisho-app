@@ -55,6 +55,7 @@ def _validate_gloss_index(
     gloss_index: dict,
     rng: random.Random,
 ) -> None:
+    has_grammar = len(grammar_merged) > 0
     for k in ("meta", "vocab", "grammar"):
         if k not in gloss_index:
             _fail(f"gloss-index missing top-level key {k!r}")
@@ -74,9 +75,12 @@ def _validate_gloss_index(
     bounds = [
         ("vocab.u", n_vu, POLICY.min_gloss_vocab_unigram_keys, POLICY.max_gloss_vocab_unigram_keys),
         ("vocab.p", n_vp, POLICY.min_gloss_vocab_phrase_keys, POLICY.max_gloss_vocab_phrase_keys),
-        ("grammar.u", n_gu, POLICY.min_gloss_grammar_unigram_keys, POLICY.max_gloss_grammar_unigram_keys),
-        ("grammar.p", n_gp, POLICY.min_gloss_grammar_phrase_keys, POLICY.max_gloss_grammar_phrase_keys),
     ]
+    if has_grammar:
+        bounds += [
+            ("grammar.u", n_gu, POLICY.min_gloss_grammar_unigram_keys, POLICY.max_gloss_grammar_unigram_keys),
+            ("grammar.p", n_gp, POLICY.min_gloss_grammar_phrase_keys, POLICY.max_gloss_grammar_phrase_keys),
+        ]
     for name, n, lo, hi in bounds:
         if not (lo <= n <= hi):
             _fail(f"gloss-index {name} key count {n:,} outside expected [{lo:,}, {hi:,}]")
@@ -210,6 +214,13 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dic
     log.stage("Stage 6 — validation")
     rng = random.Random(0xCAFEBABE)
 
+    # Both grammar and sentences are optional inputs (see Stage 0); when
+    # their source files were absent the corresponding outputs are
+    # intentionally empty. Detect that here so we don't fail bound checks
+    # that only apply to a "full" build.
+    has_grammar = len(grammar_merged) > 0
+    has_sentences = len(dict_obj.get("sentences", [])) > 0
+
     # ---- Schema conformance ----
     for k in ("meta", "words", "readings", "sentences"):
         if k not in dict_obj:
@@ -229,12 +240,15 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dic
             f"word count {n_words} outside expected "
             f"[{POLICY.min_word_entries}, {POLICY.max_word_entries}]"
         )
-    if not (POLICY.min_sentence_pairs <= n_sentences <= POLICY.max_sentence_pairs):
+    if has_sentences and not (POLICY.min_sentence_pairs <= n_sentences <= POLICY.max_sentence_pairs):
         _fail(
             f"sentence count {n_sentences} outside expected "
             f"[{POLICY.min_sentence_pairs}, {POLICY.max_sentence_pairs}]"
         )
-    log.info(f"sanity bounds: words={n_words:,}, sentences={n_sentences:,}")
+    log.info(
+        f"sanity bounds: words={n_words:,}, "
+        f"sentences={n_sentences:,}{'' if has_sentences else ' (sentence source absent)'}"
+    )
 
     # ---- Index integrity ----
     bad = 0
@@ -306,9 +320,11 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dic
 
     # ---- Manifest consistency ----
     manifest = json.loads(GRAMMAR_MANIFEST_OUT.read_text(encoding="utf-8"))
-    if not manifest.get("artifacts"):
-        _fail("grammar manifest has no artifacts")
-    for art in manifest["artifacts"]:
+    if has_grammar and not manifest.get("artifacts"):
+        _fail("grammar manifest has no artifacts (grammar was supposed to be built)")
+    if not has_grammar and manifest.get("artifacts"):
+        _fail("grammar manifest lists artifacts but grammar was not built")
+    for art in manifest.get("artifacts", []):
         artifact_path = OUTPUT_DIR / art["path"]
         if not artifact_path.exists():
             _fail(f"grammar manifest references missing artifact: {art['path']}")
@@ -319,7 +335,10 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dic
                     pass
         except Exception as exc:
             _fail(f"grammar manifest artifact {art['path']} fails gzip decode: {exc}")
-    log.info("manifest consistency: artifacts present and decompress cleanly")
+    log.info(
+        f"manifest consistency: {len(manifest.get('artifacts', []))} "
+        f"artifact(s){'' if has_grammar else ' (grammar absent — manifest is empty)'}"
+    )
 
     # ---- Dictionary gzip decompresses ----
     try:
@@ -330,7 +349,7 @@ def run(log: StageLog, dict_obj: dict, grammar_merged: list, *, gloss_index: dic
         _fail(f"dictionary.json.gz fails gzip decode: {exc}")
     log.info("dictionary.json.gz decompresses cleanly")
 
-    if not (POLICY.min_grammar_entries <= len(grammar_merged) <= POLICY.max_grammar_entries):
+    if has_grammar and not (POLICY.min_grammar_entries <= len(grammar_merged) <= POLICY.max_grammar_entries):
         _fail(
             f"grammar entries {len(grammar_merged)} outside expected "
             f"[{POLICY.min_grammar_entries}, {POLICY.max_grammar_entries}]"

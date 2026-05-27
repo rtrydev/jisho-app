@@ -20,6 +20,7 @@ from . import (
     stage5_assemble,
     stage5b_gloss_index,
     stage6_validate,
+    stage7_kanji,
 )
 from .config import BUILD_MANIFEST_OUT
 
@@ -53,8 +54,16 @@ def main(argv: list[str]) -> int:
         grammar_entries=grammar_merged,
     )
 
+    # Stage 7 produces kanji + radical artifacts. Optional — skipped when
+    # KANJIDIC2 / RADKFILE2 aren't in data/. The runtime falls back to
+    # disabling the radical-search tab.
+    kanji = stage7_kanji.run(log, words=words)
+
     outputs = {**assembly["outputs"], **gloss["outputs"]}
     counts = {**assembly["counts"], **gloss["counts"]}
+    if kanji is not None:
+        outputs.update(kanji.outputs)
+        counts.update(kanji.counts)
     stage5_assemble.write_build_manifest(
         assembly["sources"], assembly["grammar_meta"], outputs, counts
     )
@@ -80,6 +89,12 @@ def main(argv: list[str]) -> int:
         f"p={counts['gloss_grammar_phrase_keys']:,}  "
         f"postings={counts['gloss_grammar_unigram_postings'] + counts['gloss_grammar_phrase_postings']:,}"
     )
+    if kanji is not None:
+        log.info(
+            f"kanji: classes={counts['kanji_classes']:,}  "
+            f"metadata={counts['kanji_metadata']:,}  "
+            f"radicals={counts['radicals']:,}"
+        )
     return 0
 
 

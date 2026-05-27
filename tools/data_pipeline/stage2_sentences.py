@@ -63,6 +63,13 @@ def _make_tagger() -> "fugashi.GenericTagger":
 
 def run(log: StageLog, word_keys: set[str]) -> list[SentenceCandidate]:
     log.stage("Stage 2 — sentences and entry linkage")
+    if not SENTENCES_PATH.exists():
+        log.info(
+            f"skipping — {SENTENCES_PATH.name} absent. "
+            f"`words[*].e` will be empty arrays and `sentences` an empty list."
+        )
+        log.done()
+        return []
     tagger = _make_tagger()
     log.info("tagger ready (MeCab + IPADIC)")
 

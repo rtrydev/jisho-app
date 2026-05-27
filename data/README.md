@@ -9,6 +9,30 @@ here manually before a build.
 The pipeline (Stage 0) pins, checksums, and freezes whatever it finds here, then
 the rest of the build runs offline against these copies.
 
+## How to obtain the sources
+
+A helper script can fetch the EDRDG sources directly from the canonical
+upstream servers (`www.edrdg.org` and `ftp.edrdg.org`):
+
+```bash
+python -m tools.data_pipeline.fetch --list           # show what's available
+python -m tools.data_pipeline.fetch                  # fetch everything missing
+python -m tools.data_pipeline.fetch kanjidic2 kradfile  # just radical-search inputs
+python -m tools.data_pipeline.fetch --force          # re-download all
+```
+
+The script uses only the Python standard library (no extra installs) and
+writes the SHA256 of every downloaded file so the snapshots can be pinned
+into the build manifest at Stage 0. All EDRDG sources are
+**CC BY-SA 4.0** — attribution is emitted automatically by Stage 5's
+`ATTRIBUTION.md`. The fetcher will not retrieve `sentence_pairs.tsv` (a
+derived JMdict-aligned reshuffle of the Tanaka corpus, not a single
+canonical file); place that one manually.
+
+EDRDG updates KANJIDIC2 approximately monthly. Re-fetching is a deliberate
+operator action — Stage 0's SHA256 pin is what enforces reproducibility
+across builds.
+
 ## Required files
 
 | Filename             | Source                                                                                   | Feeds                                     | Format                                                                                                       | License                                                                                          |
@@ -16,8 +40,15 @@ the rest of the build runs offline against these copies.
 | `JMdict_e.gz`        | JMdict (English variant)                                                                 | `words`, derived `readings` (Stages 1, 3) | Gzipped XML; root `<JMdict>` with `<entry>` children                                                          | EDRDG, CC BY-SA 4.0 — attribution + share-alike required                                         |
 | `sentence_pairs.tsv` | Tatoeba / Tanaka, JMdict-aligned subset                                                  | `sentences` + entry linkage (Stage 2)     | UTF-8 TSV, 4 columns: `ja_id \t ja_text \t en_id \t en_text`; indices key into JMdict / Tatoeba              | EDRDG / CC BY 2.0 FR (Tatoeba)                                                                   |
 | `grammar.zip`        | v1 grammar bank shipped with the previous website (recovered from `archive/jisho_old.zip`) | merged grammar bank (Stage 4)             | Bare Yomitan-v3-style ZIP: **4** `term_bank_*.json` (8-tuple entries with structured content); no `index.json` | Unspecified in the archive; recorded as "v1 jisho-app grammar bank" pending provenance recovery |
+| `kanjidic2.xml.gz`   | KANJIDIC2 (EDRDG, fetched from `https://www.edrdg.org/kanjidic/kanjidic2.xml.gz`)        | kanji metadata (Stage 7, **optional**)    | Gzipped XML; root `<kanjidic2>` with `<character>` children (strokes, JLPT, grade, freq, on/kun, meanings)    | EDRDG, CC BY-SA 4.0                                                                              |
+| `radkfile-u` *(or `radkfile2`)* | RADKFILE-U / RADKFILE2 (EDRDG, extracted from `https://ftp.edrdg.org/pub/Nihongo/kradzip.zip`) | radical → kanji map (Stage 7, **optional**) | Plain text, UTF-8 (legacy EUC-JP supported as fallback). `$ <radical> <strokes>` headers followed by kanji lines. The fetcher extracts `radkfile-u`; Stage 7 accepts either filename. | EDRDG, CC BY-SA 4.0                                                                              |
 
-All three are non-reproducible without pinning — record each source's release
+JMdict, Tatoeba, and grammar are required. KANJIDIC2 and RADKFILE2 are
+optional — when missing, Stage 7 skips and the app loads without the
+kanji-detail / radical-search features (the handwriting picker is unaffected
+since its model is trained out-of-band).
+
+All five are non-reproducible without pinning — record each source's release
 date/version at acquisition time.
 
 ### The grammar dictionary's renderer contract
@@ -52,6 +83,15 @@ sanity-checking inputs before kicking off a run:
   entry is an 8-tuple with `structured-content`; every entry carries all three
   `【 Meaning 】 / 【 Explanation 】 / 【 Example sentences 】` markers; index-7
   value is one of `N1`–`N5`.
+- **`kanjidic2.xml.gz`** (optional) — decompresses to valid XML; root is
+  `<kanjidic2>`; entry count within expected bounds (~13,000 `<character>`
+  elements). Stage 7 reads `stroke_count`, `grade`, `freq`, `jlpt`,
+  `<reading r_type="ja_on">`, `<reading r_type="ja_kun">`, and English
+  `<meaning>` nodes inside `<rmgroup>`.
+- **`radkfile2`** (optional) — UTF-8 (or EUC-JP fallback); `$ <radical>
+  <strokes>` headers, kanji lines beneath. The parser treats every non-space
+  character on a non-header line as a kanji entry; `#`-prefixed lines are
+  comments.
 
 ## Current contents — validation snapshot
 

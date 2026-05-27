@@ -44,12 +44,24 @@ next-env.d.ts
 /data/JMdict_e.gz
 /data/sentence_pairs.tsv
 /data/grammar.zip
+/data/kanjidic2.xml.gz
+# kradzip is the EDRDG archive; the contained radical files (radkfile{,-u,2,x},
+# kradfile{,2}) all get extracted into data/ depending on which variant the
+# operator picks.
+/data/kradzip.zip
+/data/radkfile
+/data/radkfile-u
+/data/radkfile2
+/data/radkfilex
+/data/kradfile
+/data/kradfile2
 
 # v1 snapshot — kept locally for reference, not redistributed
 /archive/
 
 # data pipeline scratch + generated outputs
 /.pipeline-work/
+/.handwriting-work/
 /public/data/
 /venv/
 __pycache__/
@@ -57,6 +69,9 @@ __pycache__/
 
 # kuromoji IPADIC dict synced from node_modules by postinstall
 /public/dict/
+
+# onnxruntime-web WASM artifacts synced from node_modules by postinstall
+/public/onnx/
 
 # terraform state and local plan caches (real state should live in a remote backend)
 /terraform/.terraform/

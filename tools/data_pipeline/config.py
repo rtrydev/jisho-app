@@ -20,10 +20,41 @@ WORK_DIR = REPO_ROOT / ".pipeline-work"
 JMDICT_PATH = DATA_DIR / "JMdict_e.gz"
 SENTENCES_PATH = DATA_DIR / "sentence_pairs.tsv"
 GRAMMAR_ZIP_PATH = DATA_DIR / "grammar.zip"
+# Stage 7 inputs — both optional. When absent the kanji/radical artifacts
+# aren't built and the runtime gracefully degrades (no radical-search tab).
+KANJIDIC2_PATH = DATA_DIR / "kanjidic2.xml.gz"
+# Acceptable filenames for the radical-file, in preference order:
+#   * radkfilex  — combined JIS X 0208 + JIS X 0212 (~12k chars). Best
+#                  coverage; this is what the fetch helper extracts.
+#   * radkfile   — JIS X 0208 only (~6.3k common chars). Adequate fallback.
+#   * radkfile-u — UTF-8 variant of radkfile (alternate name some
+#                  third-party mirrors ship under).
+#   * radkfile2  — JIS X 0212 SUPPLEMENT ONLY (~5.8k rare/historical chars,
+#                  WITHOUT the common ones). Listed last as a defensive
+#                  fallback; on its own it produces an unusable class set.
+# First-existing wins.
+RADKFILE_CANDIDATES = (
+    DATA_DIR / "radkfilex",
+    DATA_DIR / "radkfile",
+    DATA_DIR / "radkfile-u",
+    DATA_DIR / "radkfile2",
+)
+
+
+def resolve_radkfile_path() -> "Path | None":
+    """Return the first existing radkfile candidate, or None when none are
+    present. Stage 7 treats a None result as "skip stage" so the pipeline
+    still produces the rest of the bundle without these optional artifacts."""
+    for p in RADKFILE_CANDIDATES:
+        if p.exists():
+            return p
+    return None
 
 DICTIONARY_OUT = OUTPUT_DIR / "dictionary.json.gz"
 GRAMMAR_OUT = OUTPUT_DIR / "grammar.json.gz"
 GLOSS_INDEX_OUT = OUTPUT_DIR / "gloss-index.json.gz"
+KANJI_OUT = OUTPUT_DIR / "kanji.json.gz"
+RADKFILE_OUT = OUTPUT_DIR / "radkfile.json.gz"
 GRAMMAR_MANIFEST_OUT = OUTPUT_DIR / "grammar-manifest.json"
 ATTRIBUTION_OUT = OUTPUT_DIR / "ATTRIBUTION.md"
 BUILD_MANIFEST_OUT = OUTPUT_DIR / "build-manifest.json"

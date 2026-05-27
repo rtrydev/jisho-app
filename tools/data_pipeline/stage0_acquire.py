@@ -1,10 +1,15 @@
 """Stage 0 — source acquisition & pinning.
 
-This pipeline never downloads anything: the operator drops the three sources
-into ``data/``. This stage verifies they exist, checksums them, unzips the
-grammar archive, and resolves the grammar source metadata (from the ZIP's
-``index.json`` when present, otherwise from the ``grammar_metadata`` config
-block — both branches yield the same field set).
+This pipeline never downloads anything: the operator drops sources into
+``data/``. This stage verifies what's there, checksums it, unzips the
+grammar archive (if present), and resolves the grammar source metadata.
+
+JMdict is the only hard requirement — without it there are no
+``words`` and the rest of the pipeline collapses. ``sentence_pairs.tsv``
+and ``grammar.zip`` are treated as optional sources: when missing, the
+corresponding downstream stages skip and Stage 5 emits a manifest that
+reflects the absence. This matches Stage 7's pre-existing pattern for
+KANJIDIC2 + RADKFILE2.
 """
 
 from __future__ import annotations
@@ -47,9 +52,10 @@ class GrammarMetadataResolved:
 @dataclass
 class Stage0Result:
     sources: list[SourceRecord]
-    grammar_metadata: GrammarMetadataResolved
-    grammar_work_dir: Path
+    grammar_metadata: GrammarMetadataResolved | None
+    grammar_work_dir: Path | None
     grammar_term_bank_files: list[Path]
+    has_sentences: bool
 
 
 def _require_file(path: Path, name: str) -> SourceRecord:
@@ -57,6 +63,14 @@ def _require_file(path: Path, name: str) -> SourceRecord:
         raise SystemExit(
             f"Missing pipeline input: {name} at {path}. See data/README.md."
         )
+    size = path.stat().st_size
+    digest = sha256_file(path)
+    return SourceRecord(name=name, path=str(path), bytes=size, sha256=digest)
+
+
+def _optional_file(path: Path, name: str) -> SourceRecord | None:
+    if not path.exists():
+        return None
     size = path.stat().st_size
     digest = sha256_file(path)
     return SourceRecord(name=name, path=str(path), bytes=size, sha256=digest)
@@ -122,20 +136,31 @@ def _resolve_grammar_metadata(work_dir: Path) -> GrammarMetadataResolved:
 def run(log: StageLog) -> Stage0Result:
     log.stage("Stage 0 — source acquisition & pinning")
 
-    sources = [
-        _require_file(JMDICT_PATH, "JMdict_e.gz"),
-        _require_file(SENTENCES_PATH, "sentence_pairs.tsv"),
-        _require_file(GRAMMAR_ZIP_PATH, "grammar.zip"),
-    ]
+    sources: list[SourceRecord] = [_require_file(JMDICT_PATH, "JMdict_e.gz")]
+    sentences_src = _optional_file(SENTENCES_PATH, "sentence_pairs.tsv")
+    grammar_src = _optional_file(GRAMMAR_ZIP_PATH, "grammar.zip")
+    if sentences_src is not None:
+        sources.append(sentences_src)
+    else:
+        log.info(f"{SENTENCES_PATH.name}: missing — Stage 2 will be skipped")
+    if grammar_src is not None:
+        sources.append(grammar_src)
+    else:
+        log.info(f"{GRAMMAR_ZIP_PATH.name}: missing — Stage 4 will be skipped")
+
     for s in sources:
         log.info(f"{s.name}: {human_bytes(s.bytes)}  sha256={s.sha256[:12]}…")
 
     WORK_DIR.mkdir(parents=True, exist_ok=True)
-    grammar_work = WORK_DIR / "grammar"
-    term_banks = _unzip_grammar(GRAMMAR_ZIP_PATH, grammar_work, log)
-    meta = _resolve_grammar_metadata(grammar_work)
-    log.info(f"grammar metadata resolved from: {meta.source}")
-    log.info(f"  title={meta.title!r}  license={meta.license!r}")
+    grammar_work: Path | None = None
+    term_banks: list[Path] = []
+    meta: GrammarMetadataResolved | None = None
+    if grammar_src is not None:
+        grammar_work = WORK_DIR / "grammar"
+        term_banks = _unzip_grammar(GRAMMAR_ZIP_PATH, grammar_work, log)
+        meta = _resolve_grammar_metadata(grammar_work)
+        log.info(f"grammar metadata resolved from: {meta.source}")
+        log.info(f"  title={meta.title!r}  license={meta.license!r}")
 
     log.done()
     return Stage0Result(
@@ -143,4 +168,5 @@ def run(log: StageLog) -> Stage0Result:
         grammar_metadata=meta,
         grammar_work_dir=grammar_work,
         grammar_term_bank_files=term_banks,
+        has_sentences=sentences_src is not None,
     )

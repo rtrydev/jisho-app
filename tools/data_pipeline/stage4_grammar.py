@@ -76,6 +76,10 @@ def _validate_entry(entry: list, source_file: Path, idx: int) -> None:
 
 def run(log: StageLog, term_bank_files: list[Path]) -> list[list]:
     log.stage("Stage 4 — grammar bank validate + merge")
+    if not term_bank_files:
+        log.info("skipping — no grammar term-bank files (grammar.zip absent at Stage 0)")
+        log.done()
+        return []
     log.info(f"merging {len(term_bank_files)} term-bank files (sorted by filename suffix)")
 
     merged: list[list] = []

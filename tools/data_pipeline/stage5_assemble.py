@@ -116,23 +116,27 @@ def _build_dictionary(
 
 
 def _write_grammar_manifest(
-    grammar_meta: GrammarMetadataResolved,
-    grammar_filename: str,
-    grammar_sha256: str,
+    grammar_meta: GrammarMetadataResolved | None,
+    grammar_filename: str | None,
+    grammar_sha256: str | None,
     grammar_entry_count: int,
 ) -> bytes:
-    manifest = {
-        "version": 1,
-        "artifacts": [
-            {
-                "path": grammar_filename,
-                "encoding": "gzip",
-                "format": "yomitan-v3-term-bank",
-                "entries": grammar_entry_count,
-                "sha256": grammar_sha256,
-            }
-        ],
-        "source": {
+    # When grammar isn't being shipped, the manifest is still emitted with
+    # an empty `artifacts` list so the runtime loader's positive-path code
+    # (fetch manifest → iterate artifacts) works unchanged and yields an
+    # empty grammar map.
+    artifacts: list[dict] = []
+    if grammar_meta is not None and grammar_filename is not None:
+        artifacts.append({
+            "path": grammar_filename,
+            "encoding": "gzip",
+            "format": "yomitan-v3-term-bank",
+            "entries": grammar_entry_count,
+            "sha256": grammar_sha256,
+        })
+    manifest: dict = {"version": 1, "artifacts": artifacts}
+    if grammar_meta is not None:
+        manifest["source"] = {
             "title": grammar_meta.title,
             "revision": grammar_meta.revision,
             "format": grammar_meta.format,
@@ -140,8 +144,7 @@ def _write_grammar_manifest(
             "attribution": grammar_meta.attribution,
             "license": grammar_meta.license,
             "metadata_source": grammar_meta.source,
-        },
-    }
+        }
     payload = dumps_compact(manifest, sort_keys=True)
     GRAMMAR_MANIFEST_OUT.parent.mkdir(parents=True, exist_ok=True)
     GRAMMAR_MANIFEST_OUT.write_bytes(payload + b"\n")
@@ -150,7 +153,7 @@ def _write_grammar_manifest(
 
 def _write_attribution(
     sources: list[SourceRecord],
-    grammar_meta: GrammarMetadataResolved,
+    grammar_meta: GrammarMetadataResolved | None,
 ) -> None:
     src_by_name = {s.name: s for s in sources}
     lines = [
@@ -169,34 +172,43 @@ def _write_attribution(
         "- Attribution required; derivative works must be redistributed under",
         "  CC BY-SA 4.0.",
         "",
-        "## Tanaka / Tatoeba (JMdict-aligned subset)",
-        "",
-        "- Source: Tatoeba Project / EDRDG (Tanaka corpus, JMdict-aligned)",
-        "- Snapshot: data/sentence_pairs.tsv",
-        f"- sha256: `{src_by_name['sentence_pairs.tsv'].sha256}`",
-        "- License: Creative Commons Attribution 2.0 France (Tatoeba) / EDRDG terms",
-        "- Attribution required.",
-        "",
-        "## Yomitan grammar bank",
-        "",
-        f"- Title: {grammar_meta.title}",
-        f"- Revision: {grammar_meta.revision}",
-        f"- Author: {grammar_meta.author}",
-        f"- Attribution: {grammar_meta.attribution}",
-        f"- License: {grammar_meta.license}",
-        f"- Snapshot: data/grammar.zip",
-        f"- sha256: `{src_by_name['grammar.zip'].sha256}`",
-        f"- Metadata source: {grammar_meta.source} "
-        f"({'read from ZIP' if grammar_meta.source == 'index.json' else 'pipeline grammar_metadata config'})",
-        "",
     ]
+    if "sentence_pairs.tsv" in src_by_name:
+        lines += [
+            "## Tanaka / Tatoeba (JMdict-aligned subset)",
+            "",
+            "- Source: Tatoeba Project / EDRDG (Tanaka corpus, JMdict-aligned)",
+            "- Snapshot: data/sentence_pairs.tsv",
+            f"- sha256: `{src_by_name['sentence_pairs.tsv'].sha256}`",
+            "- License: Creative Commons Attribution 2.0 France (Tatoeba) / EDRDG terms",
+            "- Attribution required.",
+            "",
+        ]
+    if grammar_meta is not None and "grammar.zip" in src_by_name:
+        lines += [
+            "## Yomitan grammar bank",
+            "",
+            f"- Title: {grammar_meta.title}",
+            f"- Revision: {grammar_meta.revision}",
+            f"- Author: {grammar_meta.author}",
+            f"- Attribution: {grammar_meta.attribution}",
+            f"- License: {grammar_meta.license}",
+            f"- Snapshot: data/grammar.zip",
+            f"- sha256: `{src_by_name['grammar.zip'].sha256}`",
+            f"- Metadata source: {grammar_meta.source} "
+            f"({'read from ZIP' if grammar_meta.source == 'index.json' else 'pipeline grammar_metadata config'})",
+            "",
+        ]
+    # KANJIDIC2 + RADKFILE2 attribution gets appended by Stage 7's own
+    # accounting once those records flow through the build manifest. For
+    # now we only attribute what Stage 5 saw at acquisition time.
     ATTRIBUTION_OUT.parent.mkdir(parents=True, exist_ok=True)
     ATTRIBUTION_OUT.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_build_manifest(
     sources: list[SourceRecord],
-    grammar_meta: GrammarMetadataResolved,
+    grammar_meta: GrammarMetadataResolved | None,
     outputs: dict[str, dict],
     counts: dict[str, int],
 ) -> None:
@@ -211,7 +223,7 @@ def write_build_manifest(
             "keep_all_entries": POLICY.keep_all_entries,
         },
         "sources": [asdict(s) for s in sources],
-        "grammar_metadata": {**asdict(grammar_meta)},
+        "grammar_metadata": asdict(grammar_meta) if grammar_meta is not None else None,
         "outputs": outputs,
         "counts": counts,
     }
@@ -227,7 +239,7 @@ def run(
     sentence_candidates: list[SentenceCandidate],
     grammar_merged: list,
     sources: list[SourceRecord],
-    grammar_meta: GrammarMetadataResolved,
+    grammar_meta: GrammarMetadataResolved | None,
 ) -> dict:
     log.stage("Stage 5 — assemble & package")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -243,43 +255,53 @@ def run(
     log.info(f"dictionary.json: {human_bytes(len(dict_bytes))} → "
              f"{human_bytes(len(dict_gz))} gzipped")
 
-    grammar_bytes = dumps_compact(grammar_merged, sort_keys=False)
-    grammar_gz = write_gz(GRAMMAR_OUT, grammar_bytes, POLICY.gzip_level)
-    log.info(f"grammar.json:    {human_bytes(len(grammar_bytes))} → "
-             f"{human_bytes(len(grammar_gz))} gzipped")
-
-    grammar_sha = sha256_bytes(grammar_gz)
-    _write_grammar_manifest(
-        grammar_meta,
-        grammar_filename=GRAMMAR_OUT.name,
-        grammar_sha256=grammar_sha,
-        grammar_entry_count=len(grammar_merged),
-    )
-    log.info(f"grammar manifest → {GRAMMAR_MANIFEST_OUT.name}")
-
-    _write_attribution(sources, grammar_meta)
-    log.info(f"attribution → {ATTRIBUTION_OUT.name}")
-
-    outputs = {
+    outputs: dict[str, dict] = {
         "dictionary.json.gz": {
             "path": DICTIONARY_OUT.name,
             "bytes": len(dict_gz),
             "sha256": sha256_bytes(dict_gz),
         },
-        "grammar.json.gz": {
+    }
+
+    grammar_bytes = b""
+    grammar_gz = b""
+    grammar_sha: str | None = None
+    if grammar_merged:
+        grammar_bytes = dumps_compact(grammar_merged, sort_keys=False)
+        grammar_gz = write_gz(GRAMMAR_OUT, grammar_bytes, POLICY.gzip_level)
+        grammar_sha = sha256_bytes(grammar_gz)
+        log.info(f"grammar.json:    {human_bytes(len(grammar_bytes))} → "
+                 f"{human_bytes(len(grammar_gz))} gzipped")
+        outputs["grammar.json.gz"] = {
             "path": GRAMMAR_OUT.name,
             "bytes": len(grammar_gz),
             "sha256": grammar_sha,
-        },
-        "grammar-manifest.json": {
-            "path": GRAMMAR_MANIFEST_OUT.name,
-            "bytes": GRAMMAR_MANIFEST_OUT.stat().st_size,
-        },
-        "ATTRIBUTION.md": {
-            "path": ATTRIBUTION_OUT.name,
-            "bytes": ATTRIBUTION_OUT.stat().st_size,
-        },
+        }
+    else:
+        # Remove any stale grammar.json.gz from a previous build that had it.
+        if GRAMMAR_OUT.exists():
+            GRAMMAR_OUT.unlink()
+        log.info("grammar.json:    skipped (no entries)")
+
+    _write_grammar_manifest(
+        grammar_meta,
+        grammar_filename=GRAMMAR_OUT.name if grammar_merged else None,
+        grammar_sha256=grammar_sha,
+        grammar_entry_count=len(grammar_merged),
+    )
+    log.info(f"grammar manifest → {GRAMMAR_MANIFEST_OUT.name}")
+    outputs["grammar-manifest.json"] = {
+        "path": GRAMMAR_MANIFEST_OUT.name,
+        "bytes": GRAMMAR_MANIFEST_OUT.stat().st_size,
     }
+
+    _write_attribution(sources, grammar_meta)
+    log.info(f"attribution → {ATTRIBUTION_OUT.name}")
+    outputs["ATTRIBUTION.md"] = {
+        "path": ATTRIBUTION_OUT.name,
+        "bytes": ATTRIBUTION_OUT.stat().st_size,
+    }
+
     counts = {
         "words": len(words),
         "readings": len(readings),
