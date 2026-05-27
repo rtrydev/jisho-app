@@ -62,7 +62,14 @@ next-env.d.ts
 # data pipeline scratch + generated outputs
 /.pipeline-work/
 /.handwriting-work/
-/public/data/
+# Most of /public/data/ is gitignored (large, rebuild-able, fetchable via
+# `npm run data:fetch`). The handwriting recognizer is the exception: it
+# takes ~1h on a GPU to retrain and is small enough (2.9 MB int8) to ship
+# in the repo so a fresh clone can use the Draw tab without that cost.
+# Its paired class index ships alongside — they're meaningless apart.
+/public/data/*
+!/public/data/kanji-recognizer.onnx
+!/public/data/kanji-classes.json
 /venv/
 __pycache__/
 *.pyc
