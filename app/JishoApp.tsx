@@ -75,23 +75,35 @@ function AppRoot() {
 
   const nav: Nav = { openInRead, openKanji };
 
+  // Render every screen on every render and hide the inactive ones via
+  // `display: none`. Conditional mounting would unmount the inactive screens
+  // and discard their local state — the textarea contents on Read, the
+  // selected input mode and in-progress strokes on Kanji, history/favorites
+  // filters, etc. Keeping them mounted preserves all of it across tab
+  // switches. `display: contents` makes the wrapper transparent to the
+  // `.app-main` flex layout, so the active `.screen` still behaves as a
+  // direct flex child.
   return (
     <NavContext.Provider value={nav}>
       <AppShell active={screen} onChange={setScreen}>
-        {screen === "read" && (
-          <ReadScreen key={readText ?? "__default__"} initialText={readText} />
-        )}
-        {screen === "kanji" && (
+        <div style={{ display: screen === "read" ? "contents" : "none" }}>
+          <ReadScreen initialText={readText} />
+        </div>
+        <div style={{ display: screen === "kanji" ? "contents" : "none" }}>
           <KanjiScreen
             initialChar={kanjiSeed}
             onClearInitial={() => setKanjiSeed(null)}
           />
-        )}
-        {screen === "history" && (
+        </div>
+        <div style={{ display: screen === "history" ? "contents" : "none" }}>
           <HistoryScreen activeId={activeHistoryId} onOpen={openInRead} />
-        )}
-        {screen === "favorites" && <FavoritesScreen />}
-        {screen === "settings" && <SettingsScreen />}
+        </div>
+        <div style={{ display: screen === "favorites" ? "contents" : "none" }}>
+          <FavoritesScreen />
+        </div>
+        <div style={{ display: screen === "settings" ? "contents" : "none" }}>
+          <SettingsScreen />
+        </div>
       </AppShell>
     </NavContext.Provider>
   );

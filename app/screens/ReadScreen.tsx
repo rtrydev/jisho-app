@@ -48,6 +48,16 @@ export function ReadScreen({
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastAnalysed = useRef<string | null>(null);
 
+  // Sync nav-driven `initialText` into the textarea. The screen stays mounted
+  // across tab switches (so its local state survives), which means a new
+  // `initialText` from openInRead / a URL seed no longer arrives via remount —
+  // we have to copy it into `text` explicitly. We skip the undefined case so
+  // user-typed input isn't clobbered every render.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (initialText !== undefined) setText(initialText);
+  }, [initialText]);
+
   // Run analyzer when text changes. History recording is debounced separately
   // below so we don't write a row for every keystroke as the user types.
   useEffect(() => {
