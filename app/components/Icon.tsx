@@ -27,14 +27,23 @@ export const History = (p: IconProps) => (
   </svg>
 );
 
-/** Hanko stamp pressed onto paper — a solid rounded square (the inked
- *  panel) with the kanji 印 (in / seal) cut out in paper color. Same
- *  semantic as the in-card Seal icon and the --seal accent token, but
- *  scaled so the character actually reads at 20px tab-bar size. Active
- *  tab gets `--seal` red via the .btab-active CSS, inactive stays gray. */
+/** Outlined seal frame containing 印 (in / seal). Matches the outlined
+ *  stroke style of the other tab icons (Read, Kanji, History, Settings)
+ *  while keeping the seal/hanko semantic for favorites. Same viewBox /
+ *  type weight / character size as the Kanji icon's 字, so the two
+ *  destinations read as a matched pair. */
 export const Favorites = (p: IconProps) => (
   <svg {...withDefaults(p)}>
-    <rect x="3" y="3" width="18" height="18" rx="2.5" fill="currentColor" />
+    <rect
+      x="3"
+      y="3"
+      width="18"
+      height="18"
+      rx="1.5"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      fill="none"
+    />
     <text
       x="12"
       y="18"
@@ -42,7 +51,7 @@ export const Favorites = (p: IconProps) => (
       fontFamily='"Noto Serif JP", serif'
       fontSize="14"
       fontWeight="700"
-      fill="var(--paper-card)"
+      fill="currentColor"
     >
       印
     </text>
