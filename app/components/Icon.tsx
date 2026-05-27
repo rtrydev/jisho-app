@@ -27,22 +27,25 @@ export const History = (p: IconProps) => (
   </svg>
 );
 
-/** Hanko-style stamp — a seal frame with a filled inked panel inside.
- *  Reads clearly at 20px (no microscopic text glyph). Keeps the seal motif
- *  the rest of the app uses for favorites (Seal icon, --seal token). */
+/** Hanko stamp pressed onto paper — a solid rounded square (the inked
+ *  panel) with the kanji 印 (in / seal) cut out in paper color. Same
+ *  semantic as the in-card Seal icon and the --seal accent token, but
+ *  scaled so the character actually reads at 20px tab-bar size. Active
+ *  tab gets `--seal` red via the .btab-active CSS, inactive stays gray. */
 export const Favorites = (p: IconProps) => (
   <svg {...withDefaults(p)}>
-    <rect
-      x="4"
-      y="4"
-      width="16"
-      height="16"
-      rx="2.5"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      fill="none"
-    />
-    <rect x="8" y="8" width="8" height="8" rx="0.5" fill="currentColor" />
+    <rect x="3" y="3" width="18" height="18" rx="2.5" fill="currentColor" />
+    <text
+      x="12"
+      y="18"
+      textAnchor="middle"
+      fontFamily='"Noto Serif JP", serif'
+      fontSize="14"
+      fontWeight="700"
+      fill="var(--paper-card)"
+    >
+      印
+    </text>
   </svg>
 );
 
