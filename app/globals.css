@@ -2122,9 +2122,13 @@ body {
    Bump padding here so they still feel like real touch targets without
    relying on the icon-only padding boost. */
 @media (max-width: 820px) {
-  .ks-draw-actions .btn-ghost { padding: 9px 12px; font-size: 12px; }
+  .ks-draw-actions .btn-ghost,
+  .ks-draw-actions .ks-stroke-count { padding: 9px 12px; font-size: 12px; }
 }
-.ks-stroke-count { margin-left: auto; font-size: 12px; }
+/* Mirror the buttons' inner padding so the stroke count's right edge
+   lines up with the buttons' right edge instead of hugging the canvas
+   frame border, and the text sits at the same visual baseline. */
+.ks-stroke-count { margin-left: auto; font-size: 12px; padding: 5px 8px; }
 .ks-draw-status { font-size: 12px; margin: 0; font-style: italic; }
 
 /* ---- Radicals mode ---- */
