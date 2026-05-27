@@ -196,6 +196,20 @@ export function KanjiScreen({
   const kanjiStatus = kanji.status;
   const dataNotReady = kanjiStatus.kind !== "ready";
 
+  const loadingMessage =
+    kanjiStatus.kind === "loading"
+      ? `${kanjiStatus.step} ${Math.round(kanjiStatus.progress * 100)}%`
+      : kanjiStatus.kind === "error"
+        ? `Kanji data failed to load: ${kanjiStatus.message}. Run the data pipeline to produce kanji.json.gz + radkfile.json.gz.`
+        : "Loading kanji data…";
+
+  const modeHint =
+    mode === "type"
+      ? "Type or paste a kanji above — every CJK character in the field becomes a candidate."
+      : mode === "draw"
+        ? "Draw a kanji in the box above — candidates appear as you complete each stroke."
+        : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out.";
+
   return (
     <div className="screen kanji-screen">
       {/* Mode selector */}
@@ -257,25 +271,17 @@ export function KanjiScreen({
           </div>
         ) : (
           <p className="ks-empty ink-faint">
-            {mode === "type"
-              ? "Type or paste a kanji above — every CJK character in the field becomes a candidate."
-              : mode === "draw"
-                ? "Draw a kanji in the box above — candidates appear as you complete each stroke."
-                : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out."}
+            {dataNotReady ? loadingMessage : modeHint}
           </p>
         )}
       </section>
 
-      {/* Detail */}
+      {/* Detail — when no candidates exist, the candidate-row section above
+          already carries the loading/error/mode hint, so this section
+          renders nothing (avoids showing two competing hints at once). */}
       <section className="ks-detail">
-        {dataNotReady ? (
-          <p className="ks-empty ink-faint">
-            {kanjiStatus.kind === "loading"
-              ? `${kanjiStatus.step} ${Math.round(kanjiStatus.progress * 100)}%`
-              : kanjiStatus.kind === "error"
-                ? `Kanji data failed to load: ${kanjiStatus.message}. Run the data pipeline to produce kanji.json.gz + radkfile.json.gz.`
-                : "Loading kanji data…"}
-          </p>
+        {candidates.length === 0 ? null : dataNotReady ? (
+          <p className="ks-empty ink-faint">{loadingMessage}</p>
         ) : cardData ? (
           <KanjiCard
             card={cardData}
