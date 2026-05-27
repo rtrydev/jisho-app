@@ -42,7 +42,7 @@ export function FloatingActions({
           data-tooltip={favLabel}
           onClick={onFavorite}
         >
-          <Icon.Seal filled={favorite} size={14} />
+          <Icon.Heart filled={favorite} size={14} />
         </button>
       )}
       {showCopy && (

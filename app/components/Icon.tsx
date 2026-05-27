@@ -130,20 +130,19 @@ export const ShareArrow = (p: IconProps) => (
   </svg>
 );
 
-export const Seal = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
-  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
-    <rect
-      x="2.2" y="2.2" width="9.6" height="9.6" rx="1.6"
-      fill={filled ? "currentColor" : "none"}
+/** In-card favorite toggle. Universal heart semantic — distinct from the
+ *  seal-themed Favorites *destination* icon in the bottom tabs / side rail,
+ *  which keeps the hanko motif. The card-level affordance reads as
+ *  "favorite this" at a glance regardless of cultural context. */
+export const Heart = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 24 24" })}>
+    <path
+      d="M12 20.5s-7-4.3-9-9c-1.5-3.5 1-7 4.5-7 1.8 0 3.4 1 4.5 2.5C13.1 5.5 14.7 4.5 16.5 4.5c3.5 0 6 3.5 4.5 7-2 4.7-9 9-9 9z"
       stroke="currentColor"
-      strokeWidth="1.2"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+      fill={filled ? "currentColor" : "none"}
     />
-    {filled && (
-      <text x="7" y="9.6" textAnchor="middle"
-            fontFamily='"Noto Serif JP", serif'
-            fontSize="6.5" fontWeight="700"
-            fill="var(--paper-card)">印</text>
-    )}
   </svg>
 );
 
@@ -202,6 +201,6 @@ export const Kanji = (p: IconProps) => (
 
 export const Icon = {
   Read, History, Favorites, Settings, Search, Close,
-  Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Seal,
+  Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Heart,
   Brush, Undo, Info, Kanji,
 };
