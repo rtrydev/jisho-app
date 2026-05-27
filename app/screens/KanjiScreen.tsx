@@ -287,12 +287,7 @@ export function KanjiScreen({
             <span className="jp">{selected}</span> is outside the shipped class
             set (kanji.json.gz only covers JMdict ∩ KANJIDIC2 ∩ RADKFILE).
           </p>
-        ) : (
-          <p className="ks-empty ink-faint">
-            Pick a candidate above to see its readings, radicals, and example
-            words.
-          </p>
-        )}
+        ) : null}
       </section>
     </div>
   );

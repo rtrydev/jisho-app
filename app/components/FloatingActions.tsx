@@ -42,7 +42,7 @@ export function FloatingActions({
           data-tooltip={favLabel}
           onClick={onFavorite}
         >
-          <Icon.Heart filled={favorite} size={14} />
+          <Icon.Heart filled={favorite} size={16} />
         </button>
       )}
       {showCopy && (
@@ -53,7 +53,7 @@ export function FloatingActions({
           data-tooltip="Copy term"
           onClick={handleCopy}
         >
-          {copied ? <Icon.Check size={14} /> : <Icon.Copy size={14} />}
+          {copied ? <Icon.Check size={16} /> : <Icon.Copy size={16} />}
         </button>
       )}
       {showShare && (
@@ -64,7 +64,7 @@ export function FloatingActions({
           data-tooltip="Copy share link"
           onClick={onShare}
         >
-          <Icon.ShareArrow size={14} />
+          <Icon.ShareArrow size={16} />
         </button>
       )}
     </div>

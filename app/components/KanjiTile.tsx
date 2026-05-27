@@ -56,7 +56,7 @@ export function KanjiTile({
           }}
           aria-label={`Show details for ${char}`}
         >
-          <Icon.Info size={11} />
+          <Icon.Info size={13} />
         </button>
       )}
     </div>
