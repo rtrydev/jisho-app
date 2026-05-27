@@ -24,6 +24,10 @@ export function SideRail<T extends string>({
 }) {
   return (
     <nav className="rail" aria-label="Primary">
+      {/* Plain <a> on purpose: clicking the brand should hard-reload to
+          drop in-memory state. `next/link` would client-side-route and
+          keep state, which is the opposite of the intent. */}
+      {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
       <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} className="rail-brand">
         <Hanko />
         <div className="rail-brand-text">

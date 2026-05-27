@@ -71,9 +71,14 @@ export function AppShell({
     <div className="app paper-tex">
       <SideRail<ScreenId> items={RAIL_ITEMS} active={active} onChange={onChange} />
       <header className="app-topbar" aria-label="App">
+        {/* Plain <a> on purpose: clicking the brand should hard-reload to
+            drop in-memory state. `next/link` would client-side-route and
+            keep state, which is the opposite of the intent. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} style={{ display: "contents" }}>
           <Hanko size="md" />
         </a>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = "/"; }} style={{ display: "contents" }}>
           <div className="app-topbar-text">
             <span className="serif app-topbar-title">Jisho</span>
