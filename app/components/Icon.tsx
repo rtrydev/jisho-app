@@ -146,8 +146,16 @@ export const Info = (p: IconProps) => (
   </svg>
 );
 
+/** Square frame with a few strokes — represents the Kanji destination. */
+export const Kanji = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <rect x="4" y="4" width="16" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M8 9h8M8 13h8M11 9v8M14 9v8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  </svg>
+);
+
 export const Icon = {
   Read, History, Favorites, Settings, Search, Close,
   Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Seal,
-  Brush, Undo, Info,
+  Brush, Undo, Info, Kanji,
 };

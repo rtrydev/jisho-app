@@ -2045,3 +2045,238 @@ body {
   color: var(--seal);
   background: var(--seal-glow);
 }
+
+/* =========================================================================
+   Kanji screen (Type / Draw / Radicals modes + inline detail)
+   ========================================================================= */
+
+.kanji-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+  padding: 20px 24px 28px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-ghost) transparent;
+}
+@media (max-width: 540px) {
+  .kanji-screen { padding: 14px 14px 24px; gap: 12px; }
+}
+
+.ks-modes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ks-input {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink-soft);
+  border-radius: 4px;
+  padding: 16px;
+}
+
+/* ---- Type mode ---- */
+
+.ks-type { display: flex; flex-direction: column; gap: 8px; }
+.ks-type-input {
+  width: 100%;
+  min-width: 0;
+  font-size: calc(20px * var(--jp-scale));
+  padding: 10px 14px;
+  border-radius: 4px;
+}
+.ks-type-hint { font-size: 12px; margin: 0; }
+
+/* ---- Draw mode ---- */
+
+.ks-draw { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.ks-canvas-frame {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4px;
+  background: var(--paper-sink);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+}
+.ks-draw-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+}
+.ks-stroke-count { margin-left: auto; font-size: 12px; }
+.ks-draw-status { font-size: 12px; margin: 0; font-style: italic; }
+
+/* ---- Radicals mode ---- */
+
+.ks-radicals-wrap {
+  display: flex;
+  min-height: 240px;
+  max-height: 360px;
+}
+
+/* ---- Candidate row (shared by all modes) ---- */
+
+.ks-candidates {
+  min-height: 64px;
+}
+.ks-candidate-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+}
+.ks-candidate-row::-webkit-scrollbar { height: 6px; }
+.ks-candidate-row::-webkit-scrollbar-thumb { background: var(--ink-ghost); border-radius: 999px; }
+
+/* ---- Detail panel + shared empty state ---- */
+
+.ks-detail { flex: 0 0 auto; }
+.ks-empty {
+  margin: 0;
+  padding: 16px 4px;
+  font-style: italic;
+  font-size: 13px;
+}
+
+/* Active state on KanjiTile (used by the candidate row to highlight the
+   currently-displayed kanji). Reuses the wrap class added earlier. */
+.kanji-tile-wrap.kanji-tile-active .kanji-tile {
+  border-color: var(--seal);
+  background: var(--seal-glow);
+}
+
+/* =========================================================================
+   Kanji breakdown — per-kanji rows under TermCard
+   ========================================================================= */
+
+.kb {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line-soft);
+}
+
+.kb-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kb-list > li { margin: 0; padding: 0; }
+
+/* Row is a button — set every layout property explicitly so the browser's
+   default <button> chrome (display: inline-block, white-space: nowrap, …)
+   never leaks through. */
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  transition: border-color .12s, background .12s, box-shadow .12s;
+}
+.kb-row:hover {
+  border-color: var(--seal);
+  box-shadow: var(--sh-1);
+}
+.kb-row:focus-visible {
+  outline: 2px solid var(--seal);
+  outline-offset: 2px;
+}
+
+/* Glyph tile — mirrors KanjiTile's chrome at a smaller size. */
+.kb-glyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  font-size: calc(26px * var(--jp-scale));
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* Body column: readings + meaning stacked. min-width:0 lets long meaning
+   strings ellipsize instead of pushing the tag column off-screen. */
+.kb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kb-readings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+.kb-reading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.kb-reading-label {
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.kb-reading-text {
+  color: var(--ink);
+  font-size: calc(13px * var(--jp-scale));
+}
+
+.kb-meaning {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+  /* Clamp to 2 lines so long-meaning kanji don't dominate a card. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Tag column — JLPT + stroke count. Stack vertically on desktop, wrap
+   below the body on narrow viewports. */
+.kb-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 540px) {
+  .kb-row { flex-wrap: wrap; }
+  .kb-glyph { width: 40px; height: 40px; }
+  .kb-tags {
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

@@ -6,10 +6,11 @@ import { Hanko } from "./Hanko";
 import { SideRail, type RailItem } from "./SideRail";
 import { BottomTabs, type TabItem } from "./BottomTabs";
 
-export type ScreenId = "read" | "history" | "favorites" | "settings";
+export type ScreenId = "read" | "kanji" | "history" | "favorites" | "settings";
 
 const RAIL_ITEMS: RailItem<ScreenId>[] = [
   { id: "read", label: "Read", kanji: "読" },
+  { id: "kanji", label: "Kanji", kanji: "字" },
   { id: "history", label: "History", kanji: "歴" },
   { id: "favorites", label: "Favorites", kanji: "印" },
   { id: "settings", label: "Settings", kanji: "設" },
@@ -17,6 +18,7 @@ const RAIL_ITEMS: RailItem<ScreenId>[] = [
 
 const TAB_ITEMS: TabItem<ScreenId>[] = [
   { id: "read", label: "Read", icon: Icon.Read },
+  { id: "kanji", label: "Kanji", icon: Icon.Kanji },
   { id: "history", label: "History", icon: Icon.History },
   { id: "favorites", label: "Favorites", icon: Icon.Favorites },
   { id: "settings", label: "Settings", icon: Icon.Settings },

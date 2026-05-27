@@ -2,6 +2,7 @@ import { Ruby, romanize } from "./Ruby";
 import { FloatingActions } from "./FloatingActions";
 import { ExampleList, type ExampleSentence } from "./Example";
 import { ConjugationGrid, type Conjugation } from "./ConjugationGrid";
+import { KanjiBreakdown } from "./KanjiBreakdown";
 import { Tag, PosPill } from "./Tag";
 
 /** One JP entry surfaced as a translation candidate for an English query.
@@ -178,6 +179,10 @@ export function TermCard({
 
       {!compact && card.examples && card.examples.length > 0 && (
         <ExampleList examples={card.examples} />
+      )}
+
+      {!compact && !isInverted && (
+        <KanjiBreakdown text={card.head} />
       )}
 
       {card.tags && card.tags.length > 0 && (

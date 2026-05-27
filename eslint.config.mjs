@@ -18,6 +18,9 @@ const eslintConfig = defineConfig([
     // Static assets synced from node_modules by postinstall. Not source —
     // linting upstream bundles produces thousands of meaningless warnings.
     "public/onnx/**",
+    // Python virtualenv for tools/. Contains third-party JS bundles
+    // (e.g. torch's model_dump) that should never be linted.
+    "venv/**",
   ]),
 ]);
 

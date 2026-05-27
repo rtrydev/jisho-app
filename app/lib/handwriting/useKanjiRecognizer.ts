@@ -7,7 +7,7 @@
 // handwriting picker. After that, the loaded session is cached for the rest
 // of the session via the module-level promise in `loader.ts`.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadRecognizer, type RecognizerResources } from "./loader";
 import { strokesToInput } from "./preprocess";
 import { recognize } from "./recognize";
@@ -65,5 +65,13 @@ export function useKanjiRecognizer(): KanjiRecognizer {
     return recognize(resources, input, topK);
   }, []);
 
-  return { status, recognize: run };
+  // Memoize the returned shape so consumers can put `recognizer` straight in
+  // a useEffect dep array without retriggering on every render. Without
+  // this the returned object literal is a fresh reference each render,
+  // which previously caused an infinite recognize/setState loop in callers
+  // that depended on the whole recognizer.
+  return useMemo(
+    () => ({ status, recognize: run }),
+    [status, run],
+  );
 }
