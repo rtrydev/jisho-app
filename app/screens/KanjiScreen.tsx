@@ -122,15 +122,22 @@ export function KanjiScreen({
         : radicalResults;
 
   // Auto-select the top candidate the first time a new candidate list comes
-  // in for a mode — but never override an explicit user pick. The intent is
-  // "if you type a kanji directly, you didn't have to also click it".
+  // in for a mode. In Type/Radicals modes we preserve an explicit user pick
+  // ("if you type a kanji directly, you didn't have to also click it"). In
+  // Draw mode the input refines with each stroke, so we re-snap to the top
+  // recognizer guess every time — adding/removing a stroke is treated as a
+  // brand-new input, and the user can still click another tile to inspect.
   useEffect(() => {
     if (!candidates.length) return;
+    if (mode === "draw") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelected(candidates[0]);
+      return;
+    }
     if (selected && candidates.includes(selected)) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected(candidates[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates.join("|")]);
+  }, [candidates.join("|"), mode]);
 
   // ----- Draw mode: re-recognize on stroke change ------------------- //
   //
@@ -363,7 +370,7 @@ function DrawPanel({
           disabled={strokes.length === 0}
           aria-label="Undo last stroke"
         >
-          <span className="btn-label-md">Undo</span>
+          Undo
         </Button>
         <Button
           variant="ghost"
@@ -372,7 +379,7 @@ function DrawPanel({
           disabled={strokes.length === 0}
           aria-label="Clear all strokes"
         >
-          <span className="btn-label-md">Clear</span>
+          Clear
         </Button>
         <span className="ink-faint mono ks-stroke-count">
           {strokes.length} stroke{strokes.length === 1 ? "" : "s"}

@@ -2112,7 +2112,17 @@ body {
   align-items: center;
   gap: 8px;
   width: 100%;
-  max-width: 320px;
+  /* Match the canvas frame's outer width (300px canvas + 4px padding × 2)
+     so the left edge of Undo and the right edge of the stroke count line
+     up with the canvas edges. */
+  max-width: 308px;
+}
+/* Undo / Clear keep their label on mobile (the canvas is the primary
+   surface, not the buttons — so the action names need to read clearly).
+   Bump padding here so they still feel like real touch targets without
+   relying on the icon-only padding boost. */
+@media (max-width: 820px) {
+  .ks-draw-actions .btn-ghost { padding: 9px 12px; font-size: 12px; }
 }
 .ks-stroke-count { margin-left: auto; font-size: 12px; }
 .ks-draw-status { font-size: 12px; margin: 0; font-style: italic; }
