@@ -25,10 +25,16 @@ import { useUserData } from "../providers/UserDataProvider";
 
 type Filter = "all" | "vocab" | "grammar";
 
+/** Parent-driven "open this text on Read" event. A new object identity is
+ *  produced on every navigation, so the sync effect re-fires even when the
+ *  user revisits the same text — `text` value equality would let React's
+ *  setState bail out and quietly skip the re-seed. */
+export type ReadSeed = { text: string };
+
 export function ReadScreen({
-  initialText,
+  seed,
 }: {
-  initialText?: string;
+  seed: ReadSeed | null;
 }) {
   const mobile = useIsMobile();
   const { settings } = useSettings();
@@ -36,7 +42,7 @@ export function ReadScreen({
   const { recordHistory, isFavorite, toggleFavorite } = useUserData();
   const { showToast } = useToast();
 
-  const [text, setText] = useState<string>(initialText ?? settings.defaultSentence);
+  const [text, setText] = useState<string>(seed?.text ?? settings.defaultSentence);
   const [activeChip, setActiveChip] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [sheetCardId, setSheetCardId] = useState<string | null>(null);
@@ -48,15 +54,15 @@ export function ReadScreen({
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastAnalysed = useRef<string | null>(null);
 
-  // Sync nav-driven `initialText` into the textarea. The screen stays mounted
+  // Sync nav-driven `seed` events into the textarea. The screen stays mounted
   // across tab switches (so its local state survives), which means a new
-  // `initialText` from openInRead / a URL seed no longer arrives via remount —
-  // we have to copy it into `text` explicitly. We skip the undefined case so
-  // user-typed input isn't clobbered every render.
+  // seed from openInRead / a URL seed no longer arrives via remount — we have
+  // to copy it into `text` explicitly. The dep is the seed object's identity
+  // (not its text) so a re-open of the same text still re-seeds.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (initialText !== undefined) setText(initialText);
-  }, [initialText]);
+    if (seed) setText(seed.text);
+  }, [seed]);
 
   // Run analyzer when text changes. History recording is debounced separately
   // below so we don't write a row for every keystroke as the user types.

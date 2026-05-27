@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppShell, type ScreenId } from "./components/AppShell";
 import { ToastProvider } from "./components/Toast";
-import { ReadScreen } from "./screens/ReadScreen";
+import { ReadScreen, type ReadSeed } from "./screens/ReadScreen";
 import { KanjiScreen } from "./screens/KanjiScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { FavoritesScreen } from "./screens/FavoritesScreen";
@@ -35,7 +35,11 @@ export function useNav(): Nav {
 }
 
 function AppRoot() {
-  const [readText, setReadText] = useState<string | undefined>(undefined);
+  // ReadScreen takes a "seed event" rather than a plain text value. Each
+  // openInRead / URL-deep-link mints a fresh object so the screen re-syncs
+  // even when the same text is opened twice — a bare string would trip
+  // React's setState bailout on equality.
+  const [readSeed, setReadSeed] = useState<ReadSeed | null>(null);
   const [screen, setScreen] = useState<ScreenId>("read");
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [kanjiSeed, setKanjiSeed] = useState<string | null>(null);
@@ -54,7 +58,7 @@ function AppRoot() {
       setScreen("kanji");
     }
     if (q) {
-      setReadText(q);
+      setReadSeed({ text: q });
       setActiveHistoryId(historyId(q));
       if (!k) setScreen("read");
     }
@@ -63,7 +67,7 @@ function AppRoot() {
   }, []);
 
   const openInRead = useCallback((text: string) => {
-    setReadText(text);
+    setReadSeed({ text });
     setActiveHistoryId(historyId(text));
     setScreen("read");
   }, []);
@@ -87,7 +91,7 @@ function AppRoot() {
     <NavContext.Provider value={nav}>
       <AppShell active={screen} onChange={setScreen}>
         <div style={{ display: screen === "read" ? "contents" : "none" }}>
-          <ReadScreen initialText={readText} />
+          <ReadScreen seed={readSeed} />
         </div>
         <div style={{ display: screen === "kanji" ? "contents" : "none" }}>
           <KanjiScreen

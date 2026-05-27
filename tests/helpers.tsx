@@ -14,20 +14,41 @@ export function renderApp(): { user: UserEvent; result: RenderResult } {
   return { user, result };
 }
 
+/** True iff `el` and every ancestor are not hidden via `display: none`. The
+ *  app keeps every screen mounted and toggles the active one via an inline
+ *  `display: none` wrapper, so multiple `[data-card-id="…"]` matches can
+ *  coexist — tests should only see cards on the currently-visible screen. */
+function isUserVisible(el: HTMLElement): boolean {
+  let cur: HTMLElement | null = el;
+  while (cur) {
+    if (cur.style.display === "none") return false;
+    cur = cur.parentElement;
+  }
+  return true;
+}
+
 /** Returns the `<article class="card">` for a given card id, or throws after
  *  the default RTL timeout. Cards are identified by `data-card-id`, which is
- *  the stable contract used by the analyzer + favorites + scroll-into-view. */
+ *  the stable contract used by the analyzer + favorites + scroll-into-view.
+ *  Only returns cards that are actually visible — hidden background screens
+ *  may carry their own copies. */
 export async function findCard(id: string): Promise<HTMLElement> {
   let el: HTMLElement | null = null;
   await waitFor(() => {
-    el = document.querySelector<HTMLElement>(`[data-card-id="${id}"]`);
-    if (!el) throw new Error(`No card with data-card-id="${id}"`);
+    const matches = Array.from(
+      document.querySelectorAll<HTMLElement>(`[data-card-id="${id}"]`),
+    );
+    el = matches.find(isUserVisible) ?? null;
+    if (!el) throw new Error(`No visible card with data-card-id="${id}"`);
   });
   return el!;
 }
 
 export function queryCard(id: string): HTMLElement | null {
-  return document.querySelector<HTMLElement>(`[data-card-id="${id}"]`);
+  const matches = Array.from(
+    document.querySelectorAll<HTMLElement>(`[data-card-id="${id}"]`),
+  );
+  return matches.find(isUserVisible) ?? null;
 }
 
 /** Returns the primary nav element (rail on desktop, bottom tabs on mobile). */
