@@ -123,7 +123,31 @@ export const Seal = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
   </svg>
 );
 
+export const Brush = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M15.5 4.5l4 4-8.5 8.5-4-4 8.5-8.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <path d="M7 13l4 4-1.5 1.5a3 3 0 0 1-4-4L7 13z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+    <path d="M14 6l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Undo = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M9 7L4.5 11.5L9 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M4.5 11.5h9a5 5 0 0 1 5 5v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+export const Info = (p: IconProps) => (
+  <svg {...withDefaults({ ...p, viewBox: "0 0 14 14" })}>
+    <circle cx="7" cy="7" r="5.4" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+    <circle cx="7" cy="4.2" r="0.9" fill="currentColor"/>
+    <path d="M7 6.2v4.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  </svg>
+);
+
 export const Icon = {
   Read, History, Favorites, Settings, Search, Close,
   Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Seal,
+  Brush, Undo, Info,
 };

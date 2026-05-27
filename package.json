@@ -9,11 +9,12 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "node scripts/sync-kuromoji-dict.mjs"
+    "postinstall": "node scripts/sync-kuromoji-dict.mjs && node scripts/sync-onnx-runtime.mjs"
   },
   "dependencies": {
     "kuromoji": "^0.1.2",
     "next": "16.2.6",
+    "onnxruntime-web": "^1.26.0",
     "pako": "^2.1.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"

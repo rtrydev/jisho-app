@@ -98,3 +98,41 @@ export function getDictionaryEntry(
 export function dictKeyOf(card: TermCardData): string {
   return card.id.slice(2);
 }
+
+/** One example word containing a given kanji, distilled for the KanjiCard
+ *  "In words" section. Independent of TermCardData — those are heavier and
+ *  the kanji detail view only needs a one-line preview per word. */
+export type KanjiWordExample = {
+  headword: string;
+  reading?: string;
+  gloss: string;
+  freq: number;
+};
+
+/** Find dictionary entries whose headword contains the given kanji,
+ *  ordered by descending frequency. Pure scan — runs in ~30–80ms on a
+ *  ~217k-key dictionary, called once when a KanjiCard mounts. */
+export function findWordsContainingKanji(
+  resources: EngineResources,
+  char: string,
+  limit = 8,
+): KanjiWordExample[] {
+  if (!char) return [];
+  const matches: Array<{ headword: string; freq: number; entry: import("./engine/types").VocabEntry }> = [];
+  for (const [headword, entry] of Object.entries(resources.dictionary.words)) {
+    if (!headword.includes(char)) continue;
+    matches.push({ headword, freq: entry.f ?? 0, entry });
+  }
+  // Sort by frequency desc, then headword length asc (shorter compounds
+  // tend to be more recognizable for the at-a-glance preview).
+  matches.sort((a, b) => {
+    if (b.freq !== a.freq) return b.freq - a.freq;
+    return a.headword.length - b.headword.length;
+  });
+  return matches.slice(0, limit).map(({ headword, freq, entry }) => ({
+    headword,
+    reading: entry.r[0],
+    gloss: entry.s[0]?.glosses[0] ?? "",
+    freq,
+  }));
+}

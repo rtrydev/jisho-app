@@ -13,10 +13,12 @@ import type { TermCardData } from "../components/TermCard";
 import {
   analyze,
   EMPTY_RESULT,
+  findWordsContainingKanji as resolveKanjiExamples,
   getDictionaryEntry as resolveEntry,
   type AnalysisResult,
   type AnalysisStatus,
   type EngineResources,
+  type KanjiWordExample,
 } from "../lib/analyzer";
 
 export type EngineContextValue = {
@@ -37,6 +39,10 @@ export type EngineContextValue = {
     dictKey: string,
     surface?: string,
   ) => TermCardData | null;
+  /** Words containing a given kanji, ordered by descending frequency. Used
+   *  by the kanji detail card to surface "in words" examples. Returns an
+   *  empty array when the engine isn't ready. */
+  findKanjiExamples: (char: string, limit?: number) => KanjiWordExample[];
 };
 
 const Ctx = createContext<EngineContextValue | null>(null);
@@ -138,9 +144,17 @@ export function EngineProvider({
     [resources],
   );
 
+  const findKanjiExamples = useCallback(
+    (char: string, limit?: number) => {
+      if (!resources) return [];
+      return resolveKanjiExamples(resources, char, limit);
+    },
+    [resources],
+  );
+
   const value = useMemo<EngineContextValue>(
-    () => ({ status, result, run, clear, getEntry }),
-    [status, result, run, clear, getEntry],
+    () => ({ status, result, run, clear, getEntry, findKanjiExamples }),
+    [status, result, run, clear, getEntry, findKanjiExamples],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

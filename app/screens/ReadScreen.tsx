@@ -10,6 +10,7 @@ import {
 import * as Icon from "../components/Icon";
 import { BreakdownChip, BreakdownLegend } from "../components/BreakdownChip";
 import { Button } from "../components/Button";
+import { KanjiLookupSheet } from "../components/KanjiLookupSheet";
 import { Segmented } from "../components/Segmented";
 import { Sheet } from "../components/Sheet";
 import { TermCard, type TermCardData } from "../components/TermCard";
@@ -44,9 +45,11 @@ export function ReadScreen({
   const [copyAllConfirm, setCopyAllConfirm] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pulseId, setPulseId] = useState<string | null>(null);
+  const [handwritingOpen, setHandwritingOpen] = useState(false);
 
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastAnalysed = useRef<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Run analyzer when text changes. History recording is debounced separately
   // below so we don't write a row for every keystroke as the user types.
@@ -180,6 +183,28 @@ export function ReadScreen({
     [showToast],
   );
 
+  const onPickKanji = useCallback((char: string) => {
+    const ta = textareaRef.current;
+    if (!ta) {
+      setText((prev) => prev + char);
+      return;
+    }
+    // If the input was collapsed when the user opened the sheet, expand it
+    // so the inserted character is visible.
+    setCollapsed(false);
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    const next = ta.value.slice(0, start) + char + ta.value.slice(end);
+    setText(next);
+    window.requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      const pos = start + char.length;
+      node.focus();
+      node.setSelectionRange(pos, pos);
+    });
+  }, []);
+
   const onCardFavorite = useCallback(
     (card: TermCardData) => {
       const term = card.surface ?? card.head;
@@ -254,6 +279,14 @@ export function ReadScreen({
           <div className="ri-actions">
             <Button
               variant="ghost"
+              leftIcon={<Icon.Brush size={16} />}
+              onClick={() => setHandwritingOpen(true)}
+              aria-label="Draw a kanji to insert"
+            >
+              <span className="btn-label-md">Draw</span>
+            </Button>
+            <Button
+              variant="ghost"
               leftIcon={<Icon.ShareArrow size={16} />}
               onClick={onShare}
               aria-label="Share query"
@@ -278,6 +311,7 @@ export function ReadScreen({
         {!collapsed && (
           <div className="ri-field">
             <textarea
+              ref={textareaRef}
               className={`ri-textarea${inputDirection === "en" ? "" : " jp"}`}
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -401,6 +435,15 @@ export function ReadScreen({
         <aside className="margin-tate" aria-hidden>
           辞 ・ 書 ・ 読 ・ 解
         </aside>
+      )}
+
+      {/* Handwriting kanji picker — mounted only when open so closing wipes
+          stroke/candidate state without an explicit reset. */}
+      {handwritingOpen && (
+        <KanjiLookupSheet
+          onClose={() => setHandwritingOpen(false)}
+          onPick={onPickKanji}
+        />
       )}
 
       {/* Mobile focus sheet */}

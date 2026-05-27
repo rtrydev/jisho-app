@@ -1680,3 +1680,368 @@ body {
   .toast-viewport { top: 12px; right: 12px; left: 12px; max-width: none; align-items: flex-end; }
   .toast { width: 100%; }
 }
+
+/* =========================================================================
+   Handwriting kanji picker
+   ========================================================================= */
+
+/* Sized for both tabs: the canvas tab needs ~360px of vertical chrome, the
+   radicals tab wants the full 92% so the radical grid has room. Picking 92%
+   uniformly keeps the sheet position stable when switching tabs. */
+.hw-sheet {
+  height: 92%;
+  padding-bottom: 16px;
+}
+@media (min-width: 680px) {
+  .hw-sheet {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 480px;
+    max-width: calc(100% - 32px);
+    border-radius: 12px;
+    margin-bottom: 16px;
+  }
+}
+
+.hw-sheet-head {
+  padding: 4px 4px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.hw-sheet-title {
+  font-size: 14px;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+
+.hw-canvas-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 12px;
+}
+.hw-canvas {
+  background: var(--paper-sink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: crosshair;
+  display: block;
+  /* Subtle inset so the surface reads as a writing surface rather than a card. */
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+.hw-canvas:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; }
+
+.hw-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 12px;
+}
+.hw-stroke-count { margin-left: auto; font-size: 12px; }
+
+.hw-candidates { min-height: 56px; padding-top: 4px; }
+.hw-candidate-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 4px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-ghost) transparent;
+}
+.hw-candidate-row::-webkit-scrollbar { height: 6px; }
+.hw-candidate-row::-webkit-scrollbar-thumb { background: var(--ink-ghost); border-radius: 999px; }
+
+.hw-status {
+  font-style: italic;
+  font-size: 13px;
+  padding: 12px 4px;
+}
+
+/* ---- Kanji tile (reused by future radical-search results) ---- */
+.kanji-tile {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 52px;
+  min-height: 60px;
+  padding: 6px 8px 4px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  transition: border-color .12s, background .12s, transform .08s;
+}
+.kanji-tile:hover {
+  border-color: var(--seal);
+  background: var(--paper);
+}
+.kanji-tile:active { transform: translateY(1px); }
+.kanji-tile-active { border-color: var(--seal); background: var(--seal-glow); }
+.kanji-tile-glyph {
+  font-size: calc(28px * var(--jp-scale));
+  line-height: 1;
+  color: var(--ink);
+}
+.kanji-tile-score {
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+/* =========================================================================
+   Radical picker (second tab inside KanjiLookupSheet)
+   ========================================================================= */
+
+.rad-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding-top: 8px;
+}
+
+.rad-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 4px 8px;
+  font-size: 12px;
+}
+.rad-clear-link {
+  background: transparent;
+  border: none;
+  color: var(--seal);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 0;
+  text-decoration: underline;
+}
+.rad-clear-link:hover { color: var(--seal-ink); }
+
+.rad-groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rad-group {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 6px;
+  align-items: start;
+}
+.rad-group-head {
+  font-size: 10px;
+  color: var(--ink-faint);
+  background: var(--paper-sink);
+  border-radius: 4px;
+  padding: 4px 0;
+  text-align: center;
+  position: sticky;
+  top: 0;
+}
+
+.rad-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rad-cell {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 2px 6px;
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: calc(16px * var(--jp-scale));
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s, opacity .12s;
+  line-height: 1.1;
+}
+.rad-cell:hover { border-color: var(--seal); }
+.rad-cell-on {
+  background: var(--seal);
+  border-color: var(--seal-ink);
+  color: var(--paper-card);
+}
+.rad-cell-on:hover { background: var(--seal-ink); }
+.rad-cell-dim {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+.rad-cell-dim:hover { border-color: var(--line); }
+
+/* =========================================================================
+   Kanji detail card
+   ========================================================================= */
+
+/* Detail mode toolbar — replaces the Segmented strip at the top of the
+   sheet when a kanji is being inspected. */
+.kc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* The detail body owns the scroll when the card content exceeds the sheet
+   height (long meaning lists, lots of example words). */
+.kc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 4px 0;
+}
+
+/* Inherits .card base styling (paper-card surface, padding, edge). The
+   kanji variant uses a slightly heavier left edge so it reads as its own
+   surface, distinct from vocab/grammar TermCards. */
+.card-kanji {
+  border-left: 3px solid var(--ink-soft);
+}
+
+.kc-head {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.kc-glyph {
+  font-size: calc(72px * var(--jp-scale));
+  line-height: 1;
+  color: var(--ink);
+  flex: 0 0 auto;
+}
+.kc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1 1 auto;
+}
+
+.kc-section { margin-top: 14px; }
+
+.kc-meanings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kc-meanings li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.kc-reading-row {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  margin-top: 4px;
+}
+.kc-reading-label {
+  font-size: 10px;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.kc-reading-text {
+  color: var(--ink);
+  font-size: calc(15px * var(--jp-scale));
+}
+
+.kc-radicals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kc-radical {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: calc(16px * var(--jp-scale));
+  background: var(--paper-sink);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  color: var(--ink);
+}
+.kc-radical-link {
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+  font-family: inherit;
+}
+.kc-radical-link.jp { font-family: var(--f-jp); }
+.kc-radical-link:hover { border-color: var(--seal); background: var(--paper); }
+
+.kc-words {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kc-word-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+.kc-word-jp {
+  font-size: calc(15px * var(--jp-scale));
+  color: var(--ink);
+}
+.kc-word-reading { font-size: 11px; }
+.kc-word-gloss {
+  color: var(--ink-soft);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---- Info button on KanjiTile ---- */
+
+/* Wrap container — `.kanji-tile` itself is now the *button* inside the
+   wrapper, with the info pip rendered as a sibling absolutely-positioned
+   element. The wrapper preserves the existing tile layout. */
+.kanji-tile-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.kanji-tile-info {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-radius: 999px;
+  transition: color .12s, background .12s;
+}
+.kanji-tile-info:hover {
+  color: var(--seal);
+  background: var(--seal-glow);
+}
