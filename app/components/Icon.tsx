@@ -27,10 +27,22 @@ export const History = (p: IconProps) => (
   </svg>
 );
 
+/** Hanko-style stamp — a seal frame with a filled inked panel inside.
+ *  Reads clearly at 20px (no microscopic text glyph). Keeps the seal motif
+ *  the rest of the app uses for favorites (Seal icon, --seal token). */
 export const Favorites = (p: IconProps) => (
   <svg {...withDefaults(p)}>
-    <rect x="4.5" y="4.5" width="15" height="15" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-    <text x="12" y="16" textAnchor="middle" fontFamily='"Noto Serif JP", serif' fontSize="9" fontWeight="700" fill="currentColor">印</text>
+    <rect
+      x="4"
+      y="4"
+      width="16"
+      height="16"
+      rx="2.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      fill="none"
+    />
+    <rect x="8" y="8" width="8" height="8" rx="0.5" fill="currentColor" />
   </svg>
 );
 
@@ -146,11 +158,33 @@ export const Info = (p: IconProps) => (
   </svg>
 );
 
-/** Square frame with a few strokes — represents the Kanji destination. */
+/** Character-square frame with the literal kanji 字 inside. The glyph is
+ *  large enough relative to the viewBox to stay legible at 20px tab size,
+ *  and the serif weight matches the surrounding type. Distinct from the
+ *  Favorites hanko (which has no text) at small sizes. */
 export const Kanji = (p: IconProps) => (
   <svg {...withDefaults(p)}>
-    <rect x="4" y="4" width="16" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
-    <path d="M8 9h8M8 13h8M11 9v8M14 9v8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <rect
+      x="3"
+      y="3"
+      width="18"
+      height="18"
+      rx="1.5"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      fill="none"
+    />
+    <text
+      x="12"
+      y="18"
+      textAnchor="middle"
+      fontFamily='"Noto Serif JP", serif'
+      fontSize="14"
+      fontWeight="700"
+      fill="currentColor"
+    >
+      字
+    </text>
   </svg>
 );
 
