@@ -1,13 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { screen, within, waitFor } from "@testing-library/react";
-import { DEMO_SENTENCE, findCard, navigateTo, renderApp } from "./helpers";
+import {
+  DEMO_SENTENCE,
+  findCard,
+  navigateTo,
+  renderApp,
+  waitForHistoryRecorded,
+} from "./helpers";
 
 describe("History screen", () => {
   it("records the seeded demo analysis on first mount", async () => {
     const { user } = renderApp();
 
-    // Wait for the analyser to have produced results.
+    // Wait for the analyser to have produced results, then for ReadScreen's
+    // 1.5s debounced history write to land. Navigating before the timer
+    // fires would unmount ReadScreen and drop the row on the floor.
     await findCard("v-先生");
+    await waitForHistoryRecorded(DEMO_SENTENCE);
 
     await navigateTo(user, "History");
     await screen.findByText("History", { selector: ".sc-title" });
@@ -23,6 +32,7 @@ describe("History screen", () => {
   it("filter input narrows visible rows by substring of the stored text", async () => {
     const { user } = renderApp();
     await findCard("v-先生");
+    await waitForHistoryRecorded(DEMO_SENTENCE);
 
     await navigateTo(user, "History");
     await screen.findByText("History", { selector: ".sc-title" });
@@ -43,6 +53,7 @@ describe("History screen", () => {
   it("clicking a history row replays the analysis on the Read screen", async () => {
     const { user } = renderApp();
     await findCard("v-先生");
+    await waitForHistoryRecorded(DEMO_SENTENCE);
 
     // Replace the textarea with something the analyser can't handle, then
     // navigate to History and replay the seeded entry.
@@ -66,6 +77,7 @@ describe("History screen", () => {
   it("deleting a row removes it without affecting other entries", async () => {
     const { user } = renderApp();
     await findCard("v-先生");
+    await waitForHistoryRecorded(DEMO_SENTENCE);
 
     // Record a second analysis (an unknown sentence: only records when it
     // produces cards, so we need another known sentence — there is none in
@@ -86,6 +98,7 @@ describe("History screen", () => {
   it("Clear all is gated by an inline confirmation prompt", async () => {
     const { user } = renderApp();
     await findCard("v-先生");
+    await waitForHistoryRecorded(DEMO_SENTENCE);
     await navigateTo(user, "History");
 
     await user.click(screen.getByRole("button", { name: /clear all/i }));

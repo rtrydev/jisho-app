@@ -45,3 +45,24 @@ export async function navigateTo(
   const button = within(nav).getByRole("button", { name: new RegExp(label) });
   await user.click(button);
 }
+
+/** Block until the analysed `text` has been recorded into the history store.
+ *  ReadScreen debounces `recordHistory` by 1.5s and the timer is cleared on
+ *  unmount, so tests that navigate away from Read must wait for the write
+ *  to settle first or history stays empty. Reads `jp:v2:history` directly
+ *  to avoid coupling the wait to any rendered surface. */
+export async function waitForHistoryRecorded(text: string): Promise<void> {
+  await waitFor(
+    () => {
+      const raw = window.localStorage.getItem("jp:v2:history");
+      if (!raw) throw new Error(`history store empty, expected "${text}"`);
+      // storage.ts wraps every payload as { schemaVersion, data }.
+      const payload = JSON.parse(raw) as {
+        data?: { entries?: Array<{ text?: string }> };
+      };
+      const hit = (payload.data?.entries ?? []).some((e) => e.text === text);
+      if (!hit) throw new Error(`history missing entry for "${text}"`);
+    },
+    { timeout: 3000, interval: 100 },
+  );
+}

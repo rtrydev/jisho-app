@@ -16,6 +16,11 @@ const ALL: Array<[string, React.ComponentType<{ size?: number }>]> = [
   ["Play", Icon.Play],
   ["Check", Icon.Check],
   ["ShareArrow", Icon.ShareArrow],
+  ["Heart", Icon.Heart],
+  ["Brush", Icon.Brush],
+  ["Undo", Icon.Undo],
+  ["Info", Icon.Info],
+  ["Kanji", Icon.Kanji],
 ];
 
 describe("Icon set", () => {
@@ -34,26 +39,29 @@ describe("Icon set", () => {
     },
   );
 
-  it("Seal renders as an outlined square by default", () => {
-    const { container } = render(<Icon.Seal size={14} />);
+  it("Favorites renders the outlined seal frame with the 印 glyph", () => {
+    const { container } = render(<Icon.Favorites size={14} />);
     const svg = container.querySelector("svg")!;
     const rect = svg.querySelector("rect")!;
     expect(rect.getAttribute("fill")).toBe("none");
-    // No inner 印 text when not filled.
-    expect(svg.querySelector("text")).toBeNull();
+    expect(svg.querySelector("text")?.textContent).toBe("印");
   });
 
-  it("Seal renders a stamped 印 glyph when filled", () => {
-    const { container } = render(<Icon.Seal size={14} filled />);
-    const svg = container.querySelector("svg")!;
-    const rect = svg.querySelector("rect")!;
-    expect(rect.getAttribute("fill")).toBe("currentColor");
-    const text = svg.querySelector("text");
-    expect(text?.textContent).toBe("印");
+  it("Heart fills only when the `filled` prop is set", () => {
+    const outlined = render(<Icon.Heart size={14} />).container.querySelector(
+      "svg path",
+    )!;
+    expect(outlined.getAttribute("fill")).toBe("none");
+
+    const filled = render(<Icon.Heart size={14} filled />).container.querySelector(
+      "svg path",
+    )!;
+    expect(filled.getAttribute("fill")).toBe("currentColor");
   });
 
   it("Icon.* namespace re-exports the same components", () => {
     expect(Icon.Icon.Read).toBe(Icon.Read);
-    expect(Icon.Icon.Seal).toBe(Icon.Seal);
+    expect(Icon.Icon.Favorites).toBe(Icon.Favorites);
+    expect(Icon.Icon.Heart).toBe(Icon.Heart);
   });
 });
