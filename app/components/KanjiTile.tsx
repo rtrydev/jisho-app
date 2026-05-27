@@ -42,7 +42,7 @@ export function KanjiTile({
         <span className="kanji-tile-glyph jp">{char}</span>
         {typeof score === "number" && (
           <span className="kanji-tile-score mono" aria-hidden>
-            {(score * 100).toFixed(0)}
+            {(score * 100).toFixed(0)}%
           </span>
         )}
       </button>
