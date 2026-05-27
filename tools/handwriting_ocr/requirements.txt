@@ -1,0 +1,22 @@
+# Handwriting OCR training pipeline.
+#
+# Install into the same venv as tools/requirements.txt, OR a separate venv —
+# nothing here is imported by the data pipeline.
+#
+#   python -m pip install -r tools/handwriting_ocr/requirements.txt
+
+# Core ML. Loose pins so this stays installable on Python 3.13+.
+torch>=2.6
+torchvision>=0.21
+
+# Image synthesis + augmentation.
+Pillow>=11.0
+numpy>=2.1
+svgpathtools>=1.6
+
+# ONNX export + post-training quantization.
+onnx>=1.17
+onnxruntime>=1.20
+
+# Progress / utility.
+tqdm>=4.67
