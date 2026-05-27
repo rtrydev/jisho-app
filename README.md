@@ -84,9 +84,16 @@ Live at [jisho.rtrydev.com](https://jisho.rtrydev.com).
 ## Getting started
 
 ```bash
-npm install        # also runs postinstall → copies kuromoji IPADIC into public/dict/
+npm install        # also runs postinstall → copies kuromoji IPADIC + ONNX Runtime WASM into public/
+npm run data:fetch # pulls the prebuilt dictionary artifacts from the live deployment
 npm run dev        # http://localhost:3000
 ```
+
+That's the fast path. After `npm install` lays down the binary dictionaries
+under `public/dict/` and `public/onnx/`, `npm run data:fetch` downloads the
+pre-built data artifacts (dictionary, gloss index, grammar bank, …) from
+[`jisho.rtrydev.com`](https://jisho.rtrydev.com) into `public/data/`. The app
+then has everything it needs to run.
 
 Available scripts:
 
@@ -98,10 +105,11 @@ Available scripts:
 | `npm run lint` | ESLint (Next.js config). |
 | `npm test` | Run the Vitest suite once. |
 | `npm run test:watch` | Vitest in watch mode. |
+| `npm run data:fetch` | Download pre-built data artifacts from the live deployment into `public/data/`. Pass `--force` to refetch existing files. Override the source with `JISHO_DATA_BASE=…`. |
 
 ### Runtime data assets
 
-The app expects four files under [public/data/](public/data/):
+The app expects these files under [`public/data/`](public/data/):
 
 - `dictionary.json.gz` — JMdict words + linked example sentences (JP path).
 - `grammar.json.gz` + `grammar-manifest.json` — merged Yomitan grammar bank
@@ -110,20 +118,48 @@ The app expects four files under [public/data/](public/data/):
   grammar (EN path). Posting scores combine a canonicity bucket (sense × gloss
   position) with a quality score, so the canonical translation of a token
   outranks deep-sense coincidences.
+- `kanji.json.gz` + `radkfile.json.gz` — per-kanji metadata + radical → kanji
+  bitsets. Powers the kanji detail card and the radical-search picker. Optional
+  — when missing, the kanji detail view and the **Radicals** tab in the kanji
+  picker degrade gracefully.
+- `kanji-classes.json` + `kanji-recognizer.onnx` — class index and the int8
+  ONNX model for the **Draw** tab in the kanji picker (synthetic-trained
+  ~5,500-class CJK recognizer, ~3 MB). Optional — without them the Draw tab
+  shows a load error but the rest of the app works.
 
-These are produced by the Python data pipeline in [tools/](tools/) and are
-**not committed**. Without them the engine will boot but every lookup will fail
-— and `scripts/deploy.sh` will refuse to deploy.
+None of these are committed. There are two ways to provision them:
 
-To generate them, drop the source snapshots into [data/](data/) (see
-[data/README.md](data/README.md) for the required filenames and licenses), then:
+**Fetch from the live deployment** (fastest; equivalent to what's serving on
+`jisho.rtrydev.com`):
 
 ```bash
-python -m venv venv            # only the first time
-source venv/bin/activate
-pip install -r tools/requirements.txt
-python -m tools.data_pipeline
+npm run data:fetch
 ```
+
+Missing optional artifacts (the kanji/radical/handwriting set) report 404
+cleanly and the script continues. Build them locally afterwards if you need
+those features.
+
+**Build from upstream EDRDG sources** (reproducible; needed when source
+snapshots change or to build the optional artifacts that aren't on production
+yet):
+
+```bash
+python -m venv venv               # one time
+source venv/bin/activate          # or .\venv\Scripts\Activate.ps1 on Windows
+pip install -r tools/requirements.txt
+
+# Sources. JMdict, KANJIDIC2, and the kradzip archive are downloadable from
+# EDRDG; sentence_pairs.tsv (Tatoeba-aligned) and grammar.zip are operator-
+# supplied — see data/README.md for filenames and license context.
+python -m tools.data_pipeline.fetch
+
+python -m tools.data_pipeline     # → dictionary, grammar, gloss-index, kanji, radkfile
+```
+
+The handwriting OCR model is a separate, longer training run; see
+[`tools/handwriting_ocr/README.md`](tools/handwriting_ocr/README.md) for the
+GPU recipe and the production training command.
 
 ## Deploying
 

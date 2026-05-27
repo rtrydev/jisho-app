@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "data:fetch": "node scripts/fetch-prebuilt-data.mjs",
     "postinstall": "node scripts/sync-kuromoji-dict.mjs && node scripts/sync-onnx-runtime.mjs"
   },
   "dependencies": {
