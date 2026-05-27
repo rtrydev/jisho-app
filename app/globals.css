@@ -421,7 +421,10 @@ body {
   grid-row: 3;
   background: var(--paper-sink);
   border-top: 1px solid var(--line);
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  /* Flex (not a fixed-column grid) so the bar stays one row regardless of
+     how many destinations are registered — adding/removing tabs no longer
+     requires syncing `grid-template-columns`. */
+  display: flex;
   align-items: stretch;
   /* `max(...)` keeps the visual 14px breathing room on devices with no home
      indicator, while pushing the tabs above the inset on iPhones that report
@@ -432,6 +435,8 @@ body {
   .btab { display: none; }
 }
 .btab-item {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   background: transparent; border: none;
   color: var(--ink-faint);
