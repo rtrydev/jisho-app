@@ -63,13 +63,19 @@ next-env.d.ts
 /.pipeline-work/
 /.handwriting-work/
 # Most of /public/data/ is gitignored (large, rebuild-able, fetchable via
-# `npm run data:fetch`). The handwriting recognizer is the exception: it
-# takes ~1h on a GPU to retrain and is small enough (2.9 MB int8) to ship
-# in the repo so a fresh clone can use the Draw tab without that cost.
-# Its paired class index ships alongside — they're meaningless apart.
+# `npm run data:fetch`). The small kanji-tab assets are tracked exceptions
+# so a fresh clone has everything the Kanji screen needs after npm install
+# alone — they're independently rebuild-able via the Python data pipeline
+# (or tools/handwriting_ocr for the recognizer) and refresh rarely.
+#   * kanji-recognizer.onnx (2.9 MB)  — handwriting INT8 model, ~1h GPU rebuild
+#   * kanji-classes.json    (33 KB)   — paired class index for the model
+#   * kanji.json.gz         (220 KB)  — Stage 7: per-kanji metadata
+#   * radkfile.json.gz      (68 KB)   — Stage 7: radical → kanji bitsets
 /public/data/*
 !/public/data/kanji-recognizer.onnx
 !/public/data/kanji-classes.json
+!/public/data/kanji.json.gz
+!/public/data/radkfile.json.gz
 /venv/
 __pycache__/
 *.pyc
