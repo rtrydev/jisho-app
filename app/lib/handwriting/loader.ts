@@ -7,6 +7,11 @@
 //
 // WASM artifacts (ort-wasm-simd-threaded.wasm and friends) are served from
 // /onnx/, copied there by scripts/sync-onnx-runtime.mjs at postinstall time.
+//
+// We import from `onnxruntime-web/wasm` rather than `onnxruntime-web` so the
+// bundler picks the pure-WASM entry, which loads ort-wasm-simd-threaded.{mjs,
+// wasm} — the only variant sync-onnx-runtime.mjs ships. The default entry
+// pulls the JSEP build and would 404 on ort-wasm-simd-threaded.jsep.mjs.
 
 import type { InferenceSession } from "onnxruntime-web";
 import type { KanjiClassesManifest } from "./types";
@@ -101,7 +106,7 @@ export function loadRecognizer(
   if (_resourcesPromise) return _resourcesPromise;
   _resourcesPromise = (async () => {
     // Dynamic import keeps onnxruntime-web out of the SSR build.
-    const ort = await import("onnxruntime-web");
+    const ort = await import("onnxruntime-web/wasm");
     ort.env.wasm.wasmPaths = WASM_PATHS;
     // Threading wants COOP/COEP headers we don't set; force single-thread.
     ort.env.wasm.numThreads = 1;

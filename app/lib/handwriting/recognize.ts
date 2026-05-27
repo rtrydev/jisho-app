@@ -12,7 +12,9 @@ export async function recognize(
 ): Promise<Candidate[]> {
   // Lazy import to avoid pulling onnxruntime-web into any module that
   // imports this purely for the function type.
-  const ort = await import("onnxruntime-web");
+  // Match loader.ts: the /wasm subpath ships only the non-JSEP runtime that
+  // sync-onnx-runtime.mjs copies into /public/onnx/.
+  const ort = await import("onnxruntime-web/wasm");
   const tensor = new ort.Tensor("float32", input, [
     1,
     1,

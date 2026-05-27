@@ -37,10 +37,15 @@ resource "aws_cloudfront_response_headers_policy" "site" {
     # inline <style> tags — there is no nonce in a pre-rendered build to
     # tighten this. Everything that *can* be locked down (object-src,
     # base-uri, frame-ancestors, connect/img/font sources) is.
+    #
+    # `'wasm-unsafe-eval'` is required for the handwriting recognizer
+    # (onnxruntime-web) to call `WebAssembly.instantiate()`. It only
+    # grants WASM compilation — narrower than `'unsafe-eval'`, which
+    # would also enable `eval()` on JS strings.
     content_security_policy {
       content_security_policy = join("; ", [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
         # `next/font/google` downloads woff2 files at build time and
