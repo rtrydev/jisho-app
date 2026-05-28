@@ -9,16 +9,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadRecognizer, type RecognizerResources } from "./loader";
-import { strokesToInput } from "./preprocess";
-import { recognize } from "./recognize";
+import { recognizeMulti } from "./recognizeMulti";
 import type { Candidate, RecognizerStatus, Stroke } from "./types";
 
 export type KanjiRecognizer = {
   status: RecognizerStatus;
-  /** Returns top-K candidates for the current strokes. Resolves to an empty
-   *  array when the strokes are empty. Throws only if recognition itself
-   *  fails — load errors surface through `status` instead. */
-  recognize: (strokes: Stroke[], topK?: number) => Promise<Candidate[]>;
+  /** Segments the strokes into characters left-to-right and returns top-K
+   *  candidates *per detected character*. Resolves to an empty array when
+   *  the strokes are empty. Throws only if recognition itself fails — load
+   *  errors surface through `status` instead. */
+  recognize: (strokes: Stroke[], topK?: number) => Promise<Candidate[][]>;
 };
 
 export function useKanjiRecognizer(): KanjiRecognizer {
@@ -57,12 +57,10 @@ export function useKanjiRecognizer(): KanjiRecognizer {
     };
   }, []);
 
-  const run = useCallback(async (strokes: Stroke[], topK = 8): Promise<Candidate[]> => {
+  const run = useCallback(async (strokes: Stroke[], topK = 8): Promise<Candidate[][]> => {
     const resources = resourcesRef.current;
     if (!resources) return [];
-    const input = strokesToInput(strokes as Stroke[]);
-    if (!input) return [];
-    return recognize(resources, input, topK);
+    return recognizeMulti(strokes, resources, topK);
   }, []);
 
   // Memoize the returned shape so consumers can put `recognizer` straight in

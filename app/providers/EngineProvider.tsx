@@ -13,12 +13,15 @@ import type { TermCardData } from "../components/TermCard";
 import {
   analyze,
   EMPTY_RESULT,
+  findWordCombinations as resolveWordCombinations,
   findWordsContainingKanji as resolveKanjiExamples,
   getDictionaryEntry as resolveEntry,
   type AnalysisResult,
   type AnalysisStatus,
   type EngineResources,
   type KanjiWordExample,
+  type WordCombinationSlot,
+  type WordSuggestion,
 } from "../lib/analyzer";
 
 export type EngineContextValue = {
@@ -43,6 +46,18 @@ export type EngineContextValue = {
    *  by the kanji detail card to surface "in words" examples. Returns an
    *  empty array when the engine isn't ready. */
   findKanjiExamples: (char: string, limit?: number) => KanjiWordExample[];
+  /** Real dictionary entries that match a combination of per-position kanji
+   *  candidates. Powers the Draw-mode "word suggestions" row — see
+   *  `findWordCombinations` for ranking semantics. Returns an empty array
+   *  when the engine isn't ready. */
+  suggestWordCombinations: (
+    slots: ReadonlyArray<WordCombinationSlot>,
+    options?: {
+      perPositionLimit?: number;
+      resultLimit?: number;
+      minTopScore?: number;
+    },
+  ) => WordSuggestion[];
 };
 
 const Ctx = createContext<EngineContextValue | null>(null);
@@ -152,9 +167,40 @@ export function EngineProvider({
     [resources],
   );
 
+  const suggestWordCombinations = useCallback(
+    (
+      slots: ReadonlyArray<WordCombinationSlot>,
+      options?: {
+        perPositionLimit?: number;
+        resultLimit?: number;
+        minTopScore?: number;
+      },
+    ) => {
+      if (!resources) return [];
+      return resolveWordCombinations(resources, slots, options);
+    },
+    [resources],
+  );
+
   const value = useMemo<EngineContextValue>(
-    () => ({ status, result, run, clear, getEntry, findKanjiExamples }),
-    [status, result, run, clear, getEntry, findKanjiExamples],
+    () => ({
+      status,
+      result,
+      run,
+      clear,
+      getEntry,
+      findKanjiExamples,
+      suggestWordCombinations,
+    }),
+    [
+      status,
+      result,
+      run,
+      clear,
+      getEntry,
+      findKanjiExamples,
+      suggestWordCombinations,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

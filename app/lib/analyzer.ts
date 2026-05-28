@@ -109,6 +109,100 @@ export type KanjiWordExample = {
   freq: number;
 };
 
+/** A real dictionary match for a kanji combination, used by the handwriting
+ *  Draw mode to surface "you might be writing this word" hints. */
+export type WordSuggestion = {
+  headword: string;
+  reading?: string;
+  gloss: string;
+  freq: number;
+  /** Product of per-position recognizer softmax probabilities. Used in
+   *  ranking; not displayed. */
+  jointScore: number;
+};
+
+/** One position's recognizer output, accepted as a permissive shape so the
+ *  caller doesn't have to import the handwriting `Candidate` type — any
+ *  `{ char, score }` array works. Scores must already be normalised to [0, 1]. */
+export type WordCombinationSlot = ReadonlyArray<{
+  char: string;
+  score: number;
+}>;
+
+/** Cross every per-position candidate with every other, look up each
+ *  combination in the dictionary, and rank the hits by joint recogniser
+ *  confidence × dictionary frequency.
+ *
+ *  Strictly bounded combinatorial work: `perPositionLimit ** slots.length`
+ *  hash lookups in the worst case (≤ 125 with defaults), each O(1). Returns
+ *  an empty array when fewer than two slots are supplied, or when any
+ *  position's top candidate sits below `minTopScore` — both signal that
+ *  there is nothing meaningful to suggest. */
+export function findWordCombinations(
+  resources: EngineResources,
+  slots: ReadonlyArray<WordCombinationSlot>,
+  options?: {
+    perPositionLimit?: number;
+    resultLimit?: number;
+    minTopScore?: number;
+  },
+): WordSuggestion[] {
+  const perPos = options?.perPositionLimit ?? 5;
+  const resultLimit = options?.resultLimit ?? 6;
+  const minTopScore = options?.minTopScore ?? 0.05;
+  if (slots.length < 2) return [];
+
+  const trimmed: WordCombinationSlot[] = [];
+  for (const g of slots) {
+    if (g.length === 0 || g[0].score < minTopScore) return [];
+    trimmed.push(g.slice(0, perPos));
+  }
+
+  // Cartesian product carrying a running joint score (product of softmax
+  // probs). We keep all combinations and filter against the dictionary in
+  // one sweep at the end rather than mutating the working set mid-product.
+  type Combo = { chars: string; score: number };
+  let combos: Combo[] = [{ chars: "", score: 1 }];
+  for (const slot of trimmed) {
+    const next: Combo[] = [];
+    for (const c of combos) {
+      for (const cand of slot) {
+        next.push({
+          chars: c.chars + cand.char,
+          score: c.score * cand.score,
+        });
+      }
+    }
+    combos = next;
+  }
+
+  const matches: WordSuggestion[] = [];
+  const seen = new Set<string>();
+  for (const combo of combos) {
+    if (seen.has(combo.chars)) continue;
+    const entry = resources.dictionary.words[combo.chars];
+    if (!entry) continue;
+    seen.add(combo.chars);
+    matches.push({
+      headword: combo.chars,
+      reading: entry.r[0],
+      gloss: entry.s[0]?.glosses[0] ?? "",
+      freq: entry.f ?? 0,
+      jointScore: combo.score,
+    });
+  }
+
+  // Rank by joint confidence × log(1 + freq). The log keeps a single
+  // 1000×-more-common word from dominating over slightly-less-frequent
+  // alternatives the recogniser was much more sure about.
+  matches.sort((a, b) => {
+    const aw = a.jointScore * Math.log1p(a.freq);
+    const bw = b.jointScore * Math.log1p(b.freq);
+    return bw - aw;
+  });
+  return matches.slice(0, resultLimit);
+}
+
 /** Find dictionary entries whose headword contains the given kanji,
  *  ordered by descending frequency. Pure scan — runs in ~30–80ms on a
  *  ~217k-key dictionary, called once when a KanjiCard mounts. */

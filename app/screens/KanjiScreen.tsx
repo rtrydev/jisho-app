@@ -16,8 +16,9 @@
 //     radical chips in the card jump back to Radicals mode pre-seeded,
 //     so the lookup loop closes inside this one screen.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../components/Button";
+import { Eyebrow, Ornament } from "../components/Eyebrow";
 import * as Icon from "../components/Icon";
 import { HandwritingCanvas } from "../components/HandwritingCanvas";
 import { KanjiCard, type KanjiCardData } from "../components/KanjiCard";
@@ -28,6 +29,7 @@ import { TextField } from "../components/TextField";
 import { useKanjiData } from "../lib/kanji/useKanjiData";
 import { useKanjiRecognizer } from "../lib/handwriting/useKanjiRecognizer";
 import { useAnalyzer } from "../providers/EngineProvider";
+import { useNav } from "../JishoApp";
 import { writeKanjiParam } from "../lib/share";
 import type { Candidate, Stroke } from "../lib/handwriting/types";
 
@@ -66,12 +68,16 @@ export function KanjiScreen({
 }) {
   const kanji = useKanjiData();
   const recognizer = useKanjiRecognizer();
-  const { findKanjiExamples } = useAnalyzer();
+  const { findKanjiExamples, suggestWordCombinations } = useAnalyzer();
+  const { openInRead } = useNav();
 
   const [mode, setMode] = useState<Mode>(initialChar ? "type" : "type");
   const [typedText, setTypedText] = useState<string>(initialChar ?? "");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
-  const [drawCandidates, setDrawCandidates] = useState<Candidate[]>([]);
+  // One inner Candidate[] per detected character group, left-to-right.
+  // Single-char drawings produce a one-element outer array; multi-char
+  // drawings produce one entry per recognised character.
+  const [drawCandidates, setDrawCandidates] = useState<Candidate[][]>([]);
   const [radicalSelection, setRadicalSelection] = useState<Set<string>>(
     () => new Set(),
   );
@@ -110,31 +116,50 @@ export function KanjiScreen({
   // When strokes are wiped, hide stale recognizer output without touching
   // `drawCandidates` state — clearing in an effect would itself trip the
   // set-state-in-effect rule.
-  const drawCandidateChars = useMemo<string[]>(
-    () => (strokes.length === 0 ? [] : drawCandidates.map((c) => c.char)),
+  const drawCandidateGroups = useMemo<Candidate[][]>(
+    () => (strokes.length === 0 ? [] : drawCandidates),
     [drawCandidates, strokes.length],
   );
-  const candidates: string[] =
-    mode === "type"
-      ? typeCandidates
-      : mode === "draw"
-        ? drawCandidateChars
-        : radicalResults;
+  // Grouped view for rendering — type/radicals modes always have a single
+  // group; draw mode has one per detected character.
+  const candidateGroups: string[][] = useMemo(() => {
+    if (mode === "type")
+      return typeCandidates.length ? [typeCandidates] : [];
+    if (mode === "draw")
+      return drawCandidateGroups
+        .map((g) => g.map((c) => c.char))
+        .filter((g) => g.length > 0);
+    return radicalResults.length ? [radicalResults] : [];
+  }, [mode, typeCandidates, drawCandidateGroups, radicalResults]);
+  const candidates: string[] = useMemo(
+    () => candidateGroups.flat(),
+    [candidateGroups],
+  );
+
+  // Per-group highlight in the candidate row. The detail card is driven by
+  // the single `selected` (it can only show one kanji), but each detected
+  // character group should still surface *its* top-1 visually — otherwise
+  // groups other than the one containing `selected` look unhighlighted even
+  // though the recognizer has a clear best guess for them. Rule: the group
+  // containing the explicit `selected` shows that char; every other group
+  // shows its own top-1.
+  const groupHighlights: string[] = useMemo(() => {
+    if (mode !== "draw") return [];
+    return drawCandidateGroups.map((g) => {
+      if (selected && g.some((c) => c.char === selected)) return selected;
+      return g[0]?.char ?? "";
+    });
+  }, [mode, drawCandidateGroups, selected]);
 
   // Auto-select the top candidate the first time a new candidate list comes
-  // in for a mode. In Type/Radicals modes we preserve an explicit user pick
-  // ("if you type a kanji directly, you didn't have to also click it"). In
-  // Draw mode the input refines with each stroke, so we re-snap to the top
-  // recognizer guess every time — adding/removing a stroke is treated as a
-  // brand-new input, and the user can still click another tile to inspect.
+  // in for a mode, but preserve the user's explicit pick if it's still in
+  // the list. In Draw mode that means refining one character (e.g. adding a
+  // stroke to the second kanji) won't yank the selection back to the first
+  // group's top-1 — only candidates falling out of top-K do.
   useEffect(() => {
     if (!candidates.length) return;
-    if (mode === "draw") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSelected(candidates[0]);
-      return;
-    }
     if (selected && candidates.includes(selected)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected(candidates[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates.join("|"), mode]);
@@ -161,6 +186,17 @@ export function KanjiScreen({
       cancelled = true;
     };
   }, [strokes, recognizeFn, recognizerKind, mode]);
+
+  // ----- Draw mode: word combinations from the per-position candidates -- //
+  //
+  // The combinatorial work is bounded (perPositionLimit^groups ≤ 125 by
+  // default) so this is cheap to run on every stroke change. Gated to draw
+  // mode + ≥2 detected character groups in the engine helper itself, so we
+  // only need to gate the React work by mode here.
+  const wordSuggestions = useMemo(() => {
+    if (mode !== "draw") return [];
+    return suggestWordCombinations(drawCandidates);
+  }, [mode, drawCandidates, suggestWordCombinations]);
 
   // ----- Radical click-through from KanjiCard ----------------------- //
 
@@ -258,23 +294,39 @@ export function KanjiScreen({
         )}
       </section>
 
-      {/* Candidate row — same primitive for all three modes. */}
+      {/* Candidate row — same primitive for all three modes. Draw mode can
+          show more than one group when multi-character segmentation fires;
+          groups are separated by an Ornament middot. */}
       <section className="ks-candidates">
-        {candidates.length > 0 ? (
+        {candidateGroups.length > 0 ? (
           <div className="ks-candidate-row thin-scroll">
-            {candidates.map((ch, i) => {
-              const drawScore = drawCandidates.find((c) => c.char === ch)?.score;
-              return (
-                <KanjiTile
-                  key={ch + i}
-                  char={ch}
-                  score={mode === "draw" ? drawScore : undefined}
-                  active={ch === selected}
-                  onClick={() => setSelected(ch)}
-                  ariaLabel={`Show details for ${ch}`}
-                />
-              );
-            })}
+            {candidateGroups.map((group, gi) => (
+              <Fragment key={gi}>
+                {gi > 0 && (
+                  <Ornament className="ks-candidate-divider">・</Ornament>
+                )}
+                {group.map((ch, i) => {
+                  const drawScore =
+                    mode === "draw"
+                      ? drawCandidates[gi]?.find((c) => c.char === ch)?.score
+                      : undefined;
+                  const active =
+                    mode === "draw"
+                      ? ch === groupHighlights[gi]
+                      : ch === selected;
+                  return (
+                    <KanjiTile
+                      key={`${gi}-${ch}-${i}`}
+                      char={ch}
+                      score={drawScore}
+                      active={active}
+                      onClick={() => setSelected(ch)}
+                      ariaLabel={`Show details for ${ch}`}
+                    />
+                  );
+                })}
+              </Fragment>
+            ))}
           </div>
         ) : (
           <p className="ks-empty ink-faint">
@@ -282,6 +334,33 @@ export function KanjiScreen({
           </p>
         )}
       </section>
+
+      {/* Word suggestions — only meaningful in Draw mode when the segmenter
+          found ≥2 characters AND at least one combination matched the
+          dictionary. Tapping a suggestion jumps to Read with the headword
+          seeded so the user can look it up immediately. */}
+      {mode === "draw" && wordSuggestions.length > 0 && (
+        <section className="ks-word-suggestions">
+          <Eyebrow>Words</Eyebrow>
+          <div className="ks-word-row thin-scroll">
+            {wordSuggestions.map((sug) => (
+              <Button
+                key={sug.headword}
+                variant="quiet"
+                className="ks-word-tile"
+                onClick={() => openInRead(sug.headword)}
+                aria-label={`Open ${sug.headword} in Read`}
+              >
+                <span className="ks-word-headword jp">{sug.headword}</span>
+                {sug.reading && sug.reading !== sug.headword && (
+                  <span className="ks-word-reading jp">{sug.reading}</span>
+                )}
+                {sug.gloss && <span className="ks-word-gloss">{sug.gloss}</span>}
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Detail — when no candidates exist, the candidate-row section above
           already carries the loading/error/mode hint, so this section

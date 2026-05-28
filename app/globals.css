@@ -2170,6 +2170,65 @@ body {
 .ks-candidate-row::-webkit-scrollbar { height: 6px; }
 .ks-candidate-row::-webkit-scrollbar-thumb { background: var(--ink-ghost); border-radius: 999px; }
 
+/* Ornament reused as an inline group divider in the Draw-mode candidate
+   row. Drops the section-break margins, centers vertically against tiles. */
+.ks-candidate-row .ks-candidate-divider {
+  margin: 0;
+  align-self: center;
+  font-size: 18px;
+  letter-spacing: 0;
+  padding: 0 4px;
+  flex: 0 0 auto;
+}
+
+/* ---- Draw-mode word suggestions ---- */
+
+.ks-word-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ks-word-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+}
+.ks-word-row::-webkit-scrollbar { height: 6px; }
+.ks-word-row::-webkit-scrollbar-thumb { background: var(--ink-ghost); border-radius: 999px; }
+
+/* btn-quiet override: the default is a single-line label; this variant
+   stacks headword + reading + gloss vertically. */
+.ks-word-tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px;
+  text-align: center;
+  flex: 0 0 auto;
+  max-width: 220px;
+}
+.ks-word-headword {
+  font-size: calc(18px * var(--jp-scale));
+  line-height: 1.15;
+  color: var(--ink);
+  font-weight: 500;
+}
+.ks-word-reading {
+  font-size: calc(11px * var(--jp-scale));
+  color: var(--ink-soft);
+}
+.ks-word-gloss {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--f-ui);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Detail panel + shared empty state ---- */
 
 .ks-detail { flex: 0 0 auto; }
