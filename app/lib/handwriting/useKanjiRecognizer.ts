@@ -1,17 +1,18 @@
 "use client";
 
-// React hook that wires the loader + inference utilities together.
+// React hook that wires the recognizer client to the Draw screen.
 //
 // Loads lazily on first mount — the Kanji screen's Draw panel is the only
-// consumer, so this hook only runs once the user opens it. After that, the
-// loaded session is cached for the rest of the session via the module-level
-// promise in `loader.ts`. Inference itself runs off the main thread: the
-// loader enables ORT's proxy worker (see loader.ts), so `recognize` below
-// stays non-blocking even though it's awaited from the main thread.
+// consumer, so this hook only runs once the user opens it. Inference runs off
+// the main thread in a dedicated worker (recognizerClient → recognizer.worker),
+// so `recognize` stays non-blocking; on environments without Worker/
+// OffscreenCanvas the client falls back to main-thread inference transparently.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadRecognizer, type RecognizerResources } from "./loader";
-import { recognizeMulti } from "./recognizeMulti";
+import {
+  createRecognizerClient,
+  type RecognizerClient,
+} from "./recognizerClient";
 import type { Candidate, RecognizerStatus, Stroke } from "./types";
 
 export type KanjiRecognizer = {
@@ -29,41 +30,44 @@ export function useKanjiRecognizer(): KanjiRecognizer {
     step: "Starting…",
     progress: 0,
   });
-  const resourcesRef = useRef<RecognizerResources | null>(null);
+  const clientRef = useRef<RecognizerClient | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const resources = await loadRecognizer((step, ratio) => {
-          if (cancelled) return;
+    const { ready, client } = createRecognizerClient((step, ratio) => {
+      if (cancelled) return;
+      setStatus({
+        kind: "loading",
+        step,
+        progress: Math.max(0, Math.min(1, ratio)),
+      });
+    });
+    clientRef.current = client;
+    ready.then(
+      () => {
+        if (!cancelled) setStatus({ kind: "ready" });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
           setStatus({
-            kind: "loading",
-            step,
-            progress: Math.max(0, Math.min(1, ratio)),
+            kind: "error",
+            message: err instanceof Error ? err.message : String(err),
           });
-        });
-        if (cancelled) return;
-        resourcesRef.current = resources;
-        setStatus({ kind: "ready" });
-      } catch (err) {
-        if (cancelled) return;
-        setStatus({
-          kind: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    })();
+        }
+      },
+    );
     return () => {
       cancelled = true;
+      client.dispose();
+      clientRef.current = null;
     };
   }, []);
 
   const run = useCallback(
     async (strokes: Stroke[], topK = 8): Promise<Candidate[][]> => {
-      const resources = resourcesRef.current;
-      if (!resources) return [];
-      return recognizeMulti(strokes, resources, topK);
+      const client = clientRef.current;
+      if (!client) return [];
+      return client.recognize(strokes, topK);
     },
     [],
   );

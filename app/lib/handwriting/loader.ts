@@ -172,15 +172,13 @@ export function loadRecognizer(
     ort.env.wasm.wasmPaths = WASM_PATHS;
     // Threading wants COOP/COEP headers we don't set; force single-thread.
     ort.env.wasm.numThreads = 1;
-    // Inference runs on the main thread (proxy OFF). The proxy worker was added
-    // back when a recognize pass fired many `session.run` calls during active
-    // drawing; recognition now runs once, after the 150ms debounce when the
-    // pointer is already idle, so it no longer competes with `pointerdown`.
-    // More importantly, ORT-web's proxy worker misbehaves with MORE THAN ONE
-    // session in it — since adding the boundary segmenter (a second session),
-    // proxying corrupted the recognizer's results (clean 日 → 已). Running both
-    // sessions on the main thread fixes that; the brief post-debounce compute
-    // (one segmenter pass + a few recognizer passes) is not noticeable.
+    // ORT-web's OWN proxy worker stays OFF: it misbehaves with more than one
+    // session in it — once the boundary segmenter was added (a second session),
+    // proxying corrupted the recognizer's results (clean 日 → 已). We offload to
+    // the main thread instead via our OWN dedicated worker (recognizer.worker.ts
+    // / recognizerClient.ts), which owns both sessions in one context and so
+    // never hits that bug. This module runs inside that worker (and on the main
+    // thread for the no-worker fallback); either way ORT's proxy must be off.
     ort.env.wasm.proxy = false;
 
     const recognizerUrl = await resolveModelUrl();

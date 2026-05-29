@@ -21,6 +21,9 @@ scipy>=1.13
 # ONNX export + post-training quantization.
 onnx>=1.17
 onnxruntime>=1.20
+# fp16 conversion for the shipped recognizer (ExportPolicy.quantization="fp16").
+# Without it, export.run's fp16 branch raises ModuleNotFoundError.
+onnxconverter-common>=1.14
 
 # Progress / utility.
 tqdm>=4.67

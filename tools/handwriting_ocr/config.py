@@ -298,10 +298,19 @@ class ExportPolicy:
     """ONNX export + quantization."""
 
     opset: int = 17
-    # Dynamic quantization is simplest and works without a calibration set.
-    # Static quantization would buy ~10% more accuracy but needs a real
-    # calibration loop — defer until the MVP ships.
-    quantization: str = "dynamic"  # one of: "dynamic", "fp16", "none"
+    # fp32 ("none") is the shipped format. Measured on a Ryzen 5 3600 via the
+    # CPU EP (single-thread, matching prod — the site sets COOP but not COEP so
+    # `crossOriginIsolated` is false and ORT runs `numThreads=1`):
+    #   int8 dynamic  241 ms  (2.9 MB)   <- was shipped; caused Draw-mode lag
+    #   fp16           17 ms  (5.9 MB)
+    #   fp32           14 ms  (11.3 MB)  <- shipped: fastest + simplest
+    # Dynamic int8 emits ConvInteger/DynamicQuantizeLinear, and ORT's CPU/WASM
+    # backend has no fast ConvInteger kernel — a ~17x trap for this Conv-bound
+    # CNN (int8 dynamic only pays off for MatMul-bound transformers). fp32 keeps
+    # plain Conv kernels (fastest) with no fp16 dtype risk in WASM; the larger
+    # download is a one-time, immutably-cached cost. (Switch to "fp16" if the
+    # download size ever matters more than the last ~3ms / dtype simplicity.)
+    quantization: str = "none"  # one of: "dynamic", "fp16", "none"
 
     # Temperature scaling (Guo et al. 2017): fit a single scalar T on the
     # deployment-proxy distribution and fold 1/T into the final linear layer
