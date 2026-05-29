@@ -37,15 +37,14 @@ type Mode = "type" | "draw" | "radicals";
 
 const TOP_K = 12;
 
-// Inference runs single-threaded ONNX on the main thread (see
-// lib/handwriting/loader.ts). Firing it the instant a stroke lands blocks the
-// main thread right when the user is bringing their finger back down for the
-// next stroke, so the canvas drops the `pointerdown` and the stroke "doesn't
-// start on touch". Debouncing means a flurry of strokes only triggers one
-// recognize pass — once the user pauses — keeping the main thread free while
-// they're actively writing. ~200ms is below the stroke-to-stroke gap of normal
-// handwriting yet still feels immediate once the hand stops.
-const RECOGNIZE_DEBOUNCE_MS = 200;
+// Inference runs in a Web Worker (see lib/handwriting/recognizerChannel.ts), so
+// it no longer blocks the canvas pointer events — a stroke always starts on
+// touch even mid-recognition. The debounce stays only to coalesce a flurry of
+// strokes into a single worker round-trip: recognizing every intermediate
+// stroke would queue redundant inference passes whose results are immediately
+// superseded. ~150ms is below the stroke-to-stroke gap of normal handwriting,
+// so candidates still refresh the moment the hand pauses.
+const RECOGNIZE_DEBOUNCE_MS = 150;
 
 /** True for any CJK ideograph (Unified Ideographs + Extension A). */
 function isCjk(ch: string): boolean {
@@ -194,9 +193,10 @@ export function KanjiScreen({
     if (recognizerKind !== "ready") return;
     if (strokes.length === 0) return;
     let cancelled = false;
-    // Debounced so rapid strokes don't each block the main thread mid-draw —
-    // see RECOGNIZE_DEBOUNCE_MS. The cleanup clears the pending timer, so a new
-    // stroke arriving within the window resets the wait instead of stacking up.
+    // Debounced so rapid strokes coalesce into one worker round-trip — see
+    // RECOGNIZE_DEBOUNCE_MS. The cleanup clears the pending timer, so a new
+    // stroke arriving within the window resets the wait instead of stacking up,
+    // and `cancelled` drops a result that resolves after newer strokes landed.
     const timer = setTimeout(() => {
       void recognizeFn(strokes, TOP_K).then((next) => {
         if (cancelled) return;
