@@ -195,6 +195,16 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+/* Buttons are tap targets, not text. Without this, a quick or repeated tap on
+   mobile selects the label and pops the iOS selection / callout UI. Covers
+   every design-system button (Button variants, Segmented, icon buttons) in one
+   place so this doesn't have to be re-fixed per control. */
+button {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
 /* Shell layout is responsive via @media queries — NOT via a JS-driven class
    on `.app`. Rendering all nav variants and letting CSS pick the right one
    is what avoids the "desktop chrome flashes before mobile chrome takes
@@ -986,12 +996,6 @@ body {
   padding: 5px 12px; border-radius: 2px;
   cursor: pointer; letter-spacing: 0.01em;
   transition: all .12s;
-  /* The control is a tap target, not text — a quick or repeated tap on mobile
-     otherwise selects the label and pops the iOS selection/callout UI. */
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
 }
 .seg-btn:hover { color: var(--ink); }
 .seg-on { background: var(--paper); color: var(--ink); box-shadow: var(--sh-1), inset 0 0 0 .5px var(--line); }
@@ -2151,7 +2155,7 @@ body {
 /* Mirror the buttons' inner padding so the stroke count's right edge
    lines up with the buttons' right edge instead of hugging the canvas
    frame border, and the text sits at the same visual baseline. */
-.ks-stroke-count { margin-left: auto; font-size: 12px; padding: 5px 8px; }
+.ks-stroke-count { margin-left: auto; font-size: 12px; padding: 5px 8px; -webkit-user-select: none; user-select: none; }
 .ks-draw-status { font-size: 12px; margin: 0; font-style: italic; }
 
 /* ---- Radicals mode ---- */
