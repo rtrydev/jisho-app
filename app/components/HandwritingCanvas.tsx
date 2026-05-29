@@ -74,6 +74,25 @@ export function HandwritingCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }, [size]);
 
+  // Block text selection for the lifetime of a stroke. The canvas carries
+  // `user-select: none`, which stops a selection that *originates* on it — but
+  // a stroke that drags past the canvas edge (a long sweep, or the pointer
+  // leaving before capture engages) can still start one on the sibling text
+  // below (the mode hint, stroke count, candidate tiles). That selection is
+  // usually invisible — it lands on whitespace or scrolled-off text — yet it
+  // still pops the iOS selection/callout UI and interrupts the stroke.
+  // `preventDefault()` on pointerdown doesn't reliably cancel it across
+  // browsers, so we suppress `selectstart` at the document level while a stroke
+  // is in flight. Gated on `activeStroke` so selection elsewhere is untouched;
+  // one persistent listener avoids add/remove churn on every stroke.
+  useEffect(() => {
+    const onSelectStart = (e: Event) => {
+      if (activeStroke.current) e.preventDefault();
+    };
+    document.addEventListener("selectstart", onSelectStart);
+    return () => document.removeEventListener("selectstart", onSelectStart);
+  }, []);
+
   // Repaint all committed strokes. Runs on `strokes` changes (undo, clear,
   // external mutation) and after a resize — a cheap clear + replay, no backing-
   // store reallocation.
@@ -119,6 +138,10 @@ export function HandwritingCanvas({
       // Only primary pointer (left mouse, single touch, pen tip).
       if (e.button !== undefined && e.button > 0) return;
       e.preventDefault();
+      // Drop any selection a previous interaction left behind, so the browser
+      // doesn't extend it as this stroke drags across the page.
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) sel.removeAllRanges();
       const canvas = canvasRef.current!;
       canvas.setPointerCapture(e.pointerId);
       const p = pointFor(e);
