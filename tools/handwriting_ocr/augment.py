@@ -32,6 +32,10 @@ def _from_pil(img: Image.Image) -> np.ndarray:
 
 def random_affine(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     pol = policy
+    # Skip with prob (1 - p_affine) so a share of samples stay at canonical
+    # position — the rigid case careful real handwriting produces.
+    if rng.random() >= pol.p_affine:
+        return arr
     h, w = arr.shape
     angle = math.radians(rng.uniform(-pol.affine_rotate_deg, pol.affine_rotate_deg))
     sx = rng.uniform(pol.affine_scale_min, pol.affine_scale_max)
@@ -89,7 +93,9 @@ def _gaussian_blur_field(field: np.ndarray, sigma: float) -> np.ndarray:
 
 def elastic_deform(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     pol = policy
-    if pol.elastic_alpha <= 0:
+    # Apply only with prob p_elastic so a share of samples stay un-warped
+    # (rigid) — see the rigidity note in config.SynthesisPolicy.
+    if pol.elastic_alpha <= 0 or rng.random() >= pol.p_elastic:
         return arr
     h, w = arr.shape
     # Per-pixel displacement field, smoothed and scaled. Sampling via numpy
@@ -174,6 +180,17 @@ def gaussian_noise(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy 
 
 def random_blur(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     pol = policy
+    # Sharpness-invariance path (the fix for "crisp/real input is OOD"): blur
+    # EVERY sample by uniform(0, sharpness_jitter_max). The range starts at 0
+    # so the model sees the full spectrum from razor-sharp to soft and cannot
+    # treat edge-softness as a class feature. When the knob is 0, fall back to
+    # the legacy probabilistic blur so old policies reproduce exactly.
+    if pol.sharpness_jitter_max > 0:
+        radius = rng.uniform(0.0, pol.sharpness_jitter_max)
+        if radius < 0.05:
+            return arr  # effectively sharp — skip the PIL round-trip
+        img = _to_pil(arr).filter(ImageFilter.GaussianBlur(radius=radius))
+        return _from_pil(img)
     if rng.random() >= pol.p_blur:
         return arr
     radius = rng.uniform(0.2, pol.blur_radius_max)

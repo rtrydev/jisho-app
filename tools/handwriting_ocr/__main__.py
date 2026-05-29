@@ -15,6 +15,8 @@ Available:
   eval           Head-to-head: a candidate checkpoint vs the deployed
                  baseline on the deployment-proxy distribution.
   export         Export the best checkpoint to ONNX + quantize.
+  validate       Compare candidate vs baseline ONNX on clean/freehand +
+                 the box/hook confusion clusters (post-retrain gate).
 """
 
 from __future__ import annotations
@@ -70,6 +72,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
         num_workers=args.num_workers,
         patience=args.patience,
         val_every=args.val_every,
+        device=args.device,
     )
     return 0
 
@@ -95,6 +98,17 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
     export.run(arch=args.arch)
     return 0
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    from . import validate_recognizer
+
+    return validate_recognizer.run(
+        baseline=args.baseline,
+        candidate=args.candidate,
+        samples=args.samples,
+        num_random=args.num_random,
+    )
 
 
 def _cmd_segment_train(args: argparse.Namespace) -> int:
@@ -209,6 +223,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ignore existing last.pt checkpoint and train from scratch.",
     )
+    sp.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        choices=["auto", "cuda", "mps", "cpu"],
+        help=(
+            "Compute device. 'auto' (default) picks CUDA → Apple MPS (Mac) → "
+            "CPU. Force 'cpu' if an MPS op misbehaves; 'mps' to require Metal."
+        ),
+    )
     sp.set_defaults(func=_cmd_train)
 
     sp = sub.add_parser(
@@ -282,6 +306,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which trained architecture's best checkpoint to export.",
     )
     sp.set_defaults(func=_cmd_export)
+
+    sp = sub.add_parser(
+        "validate",
+        help="Compare candidate vs baseline ONNX on clean/freehand + box/hook clusters.",
+    )
+    sp.add_argument(
+        "--candidate",
+        type=str,
+        default=None,
+        help="Candidate recognizer ONNX (default: public/data/kanji-recognizer.onnx).",
+    )
+    sp.add_argument(
+        "--baseline",
+        type=str,
+        default=None,
+        help="Baseline ONNX (default: .handwriting-work/kanji-recognizer.baseline.onnx).",
+    )
+    sp.add_argument("--samples", type=int, default=12, help="Samples per character (default 12).")
+    sp.add_argument(
+        "--num-random",
+        type=int,
+        default=120,
+        help="Random classes for the no-regression check (default 120).",
+    )
+    sp.set_defaults(func=_cmd_validate)
 
     # --- Character-boundary segmenter (separate small model) ------------- #
     sp = sub.add_parser("segment-train", help="Train the character-boundary segmenter.")

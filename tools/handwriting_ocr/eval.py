@@ -21,12 +21,17 @@ including the per-sample agreement table.
 """
 from __future__ import annotations
 
+import random
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+
+from .augment import augment
+from .kanjivg import rasterize_with_perturbation
 
 from .config import (
     CHECKPOINT_DIR,
@@ -36,7 +41,7 @@ from .config import (
     SynthesisPolicy,
 )
 from .dataset import SyntheticKanjiDataset
-from .model import build_model, param_count
+from .model import build_model, param_count, select_device
 
 # Same seed the training driver pins its validation split to, so `eval`
 # reproduces the in-loop val numbers exactly.
@@ -47,9 +52,18 @@ VAL_SEED = TRAIN_POLICY.seed ^ 0xDEADBEEF
 DEPLOYED_BASELINE = CHECKPOINT_DIR / "deployed_baseline.pt"
 
 CONDITIONS_HELP = {
-    "deployment": "clean stylus strokes + moderate skew (the ship gate)",
-    "clean": "canonical glyphs, no skew (ceiling)",
+    "deployment": "honest proxy: sharp↔soft spectrum + freehand + skew (ship gate)",
+    "clean": "canonical glyphs, razor-sharp, no skew/freehand (shape ceiling)",
+    "freehand": "razor-sharp + open corners + connections (real-handwriting proxy)",
     "train": "the heavy training distribution",
+}
+
+# Box/hook near-homoglyph clusters tracked in RECOGNIZER_CHALLENGES.md. The
+# recognizer's worst confusions live here; the per-condition cluster line in
+# `run` reports how a candidate does on exactly these characters.
+CONFUSION_CLUSTERS: dict[str, str] = {
+    "box": "日目曰田旦円口囗",
+    "hook": "己已巳弓戸",
 }
 
 
@@ -88,6 +102,9 @@ def _load(
 
 
 def _conditions() -> dict[str, SynthesisPolicy]:
+    # Canonical shape ceiling: razor-sharp, no geometric skew, no freehand
+    # (must zero the new sharpness/endpoint/connection knobs too, or "clean"
+    # would silently inherit VAL_POLICY's blur spectrum and open corners).
     clean = replace(
         VAL_POLICY,
         stroke_jitter_px=0.0,
@@ -99,9 +116,26 @@ def _conditions() -> dict[str, SynthesisPolicy]:
         affine_shear_deg=0.0,
         affine_translate_frac=0.0,
         elastic_alpha=0.0,
+        endpoint_overshoot_px=0.0,
+        p_connect_strokes=0.0,
+        sharpness_jitter_max=0.0,
         p_blur=0.0,
     )
-    return {"deployment": VAL_POLICY, "clean": clean, "train": SYNTH_POLICY}
+    # Real-handwriting proxy: razor-sharp edges (the OOD case that collapsed
+    # the old model) + freehand corners/connections + the deployment skew.
+    freehand = replace(
+        VAL_POLICY,
+        sharpness_jitter_max=0.0,
+        endpoint_overshoot_px=4.0,
+        p_connect_strokes=0.18,
+        connect_max_px=7.0,
+    )
+    return {
+        "deployment": VAL_POLICY,
+        "clean": clean,
+        "freehand": freehand,
+        "train": SYNTH_POLICY,
+    }
 
 
 @torch.no_grad()
@@ -149,6 +183,51 @@ def _score(
     return {"n": n, "top1": c1 / n, "top5": c5 / n, "correct1": torch.cat(correct1)}
 
 
+@torch.no_grad()
+def _cluster_report(
+    model: torch.nn.Module,
+    classes: list[str],
+    policy: SynthesisPolicy,
+    image_size: int,
+    *,
+    device: torch.device,
+    n: int = 16,
+) -> dict[str, tuple[float, float]]:
+    """Per-cluster (top-1, mean self-confidence) on the box/hook homoglyphs.
+
+    Renders only the cluster characters (deterministically seeded) and runs
+    them through the full softmax — so a confusion *into* another class still
+    counts as a miss. This is the headline diagnostic for the recognizer's
+    documented weakness; track it run-to-run."""
+    model.eval()
+    idx_of = {c: i for i, c in enumerate(classes)}
+    pol = replace(policy, image_size=image_size)
+    out: dict[str, tuple[float, float]] = {}
+    for name, chars in CONFUSION_CLUSTERS.items():
+        present = [c for c in chars if c in idx_of]
+        confs: list[float] = []
+        hits = 0
+        total = 0
+        for ch in present:
+            gi = idx_of[ch]
+            for s in range(n):
+                rng = random.Random(0xC0FFEE ^ (gi * 1009) ^ s)
+                arr = rasterize_with_perturbation(ch, image_size, rng=rng, policy=pol)
+                if arr is None:
+                    continue
+                arr = augment(arr, rng, pol)
+                x = torch.from_numpy(arr)[None, None].to(device)
+                p = torch.softmax(model(x)[0], 0)
+                confs.append(float(p[gi]))
+                hits += int(int(p.argmax()) == gi)
+                total += 1
+        out[name] = (
+            (hits / total if total else 0.0),
+            (float(np.mean(confs)) if confs else 0.0),
+        )
+    return out
+
+
 def run(
     *,
     arch: str = "simple_resnet",
@@ -162,7 +241,7 @@ def run(
     num_workers: int = 4,
     log_fn=print,
 ) -> int:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_device()  # CUDA → Apple MPS (Mac) → CPU
 
     cand_path = Path(candidate) if candidate else _default_ckpt(arch)
     cand_model, cand_classes, cand_arch, cand_size = _load(
@@ -241,4 +320,15 @@ def run(
             f"  top-1 agreement: both={both:,}  neither={neither:,}  "
             f"candidate_only={cand_only:,}  baseline_only={base_only:,}{res_note}"
         )
+        # Confusion-cluster diagnostic — the headline weakness (box/hook
+        # homoglyphs). top-1 / mean self-confidence on just those characters.
+        cand_cl = _cluster_report(cand_model, classes, policy, cand_size, device=device)
+        base_cl = _cluster_report(base_model, classes, policy, base_size, device=device)
+        for cl in CONFUSION_CLUSTERS:
+            ct1, ccf = cand_cl[cl]
+            bt1, bcf = base_cl[cl]
+            log_fn(
+                f"  cluster[{cl:>4}]: cand top-1 {ct1*100:5.1f}% conf {ccf*100:5.1f}%"
+                f"   base top-1 {bt1*100:5.1f}% conf {bcf*100:5.1f}%"
+            )
     return 0

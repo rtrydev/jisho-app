@@ -30,7 +30,7 @@ from tqdm.auto import tqdm
 from .classes import load_classes
 from .config import CHECKPOINT_DIR, SYNTH_POLICY, TRAIN_POLICY, VAL_POLICY
 from .dataset import SyntheticKanjiDataset
-from .model import build_model, param_count, smoke_forward
+from .model import build_model, param_count, select_device, smoke_forward
 
 
 # ---------- logging ----------------------------------------------------- #
@@ -118,6 +118,9 @@ def _seed_everything(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    mps = getattr(torch, "mps", None)
+    if mps is not None and hasattr(mps, "manual_seed"):
+        mps.manual_seed(seed)
 
 
 def _topk_correct(logits: torch.Tensor, labels: torch.Tensor, ks: Iterable[int]) -> dict[int, int]:
@@ -261,6 +264,7 @@ def train(
     num_workers: int | None = None,
     patience: int | None = None,
     val_every: int | None = None,
+    device: str | None = None,
 ) -> Path:
     """Run training to completion. Returns the path of the best checkpoint."""
     pol = TRAIN_POLICY
@@ -269,7 +273,8 @@ def train(
     val_every = max(1, val_every or pol.val_every_n_epochs)
 
     _seed_everything(pol.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # CUDA → Apple MPS (Mac) → CPU, unless overridden via --device.
+    device = select_device(device)
 
     # Per-arch checkpoint dirs so consecutive experiments don't clobber each
     # other's best models, but the default arch keeps the original path.
@@ -357,7 +362,13 @@ def train(
         weight_decay=pol.weight_decay,
     )
     loss_fn = nn.CrossEntropyLoss(label_smoothing=pol.label_smoothing)
-    scaler = torch.amp.GradScaler("cuda", enabled=pol.use_amp and device.type == "cuda")
+    # AMP is CUDA-only; MPS/CPU train in fp32 (scaler=None → _run_epoch takes
+    # the plain backward/step path).
+    scaler = (
+        torch.amp.GradScaler("cuda")
+        if pol.use_amp and device.type == "cuda"
+        else None
+    )
 
     history = RunHistory()
     start_epoch = 0

@@ -11,9 +11,12 @@ index ``i`` corresponds to ``classes[i]``. Both files ship together.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import torch
+from torch import nn
+from torch.utils.data import DataLoader
 
 from .classes import load_classes
 from .config import (
@@ -22,6 +25,7 @@ from .config import (
     MODEL_FP32_OUT,
     MODEL_OUT,
     SYNTH_POLICY,
+    VAL_POLICY,
 )
 from .model import build_model
 
@@ -53,6 +57,83 @@ def _load_best_model(arch: str = "simple_resnet") -> tuple[torch.nn.Module, list
     model.load_state_dict(ckpt["model_state"])
     model.eval()
     return model, ckpt_classes, image_size
+
+
+def _final_linear(model: torch.nn.Module, arch: str) -> nn.Linear:
+    """The classifier's last ``nn.Linear`` — where temperature is folded."""
+    if arch == "simple_resnet":
+        return model.fc  # type: ignore[return-value]
+    # torchvision MobileNetV3 head is Sequential(Linear, Hardswish, Dropout, Linear).
+    last = [m for m in model.classifier if isinstance(m, nn.Linear)][-1]  # type: ignore[attr-defined]
+    return last
+
+
+@torch.no_grad()
+def _collect_logits(
+    model: torch.nn.Module, classes: list[str], image_size: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Logits + labels on a capped deployment-proxy sample (for calibration)."""
+    # Import here to avoid pulling the dataset/synthesis stack into callers
+    # that only want a plain export.
+    from .dataset import SyntheticKanjiDataset
+
+    n_cls = min(EXPORT_POLICY.calib_max_classes, len(classes))
+    subset = classes[:n_cls]
+    ds = SyntheticKanjiDataset(
+        subset,
+        samples_per_class=EXPORT_POLICY.calib_samples_per_class,
+        base_seed=0xCA11B,
+        deterministic=True,
+        policy=replace(VAL_POLICY, image_size=image_size),
+    )
+    loader = DataLoader(ds, batch_size=256, shuffle=False, num_workers=0)
+    logits_all: list[torch.Tensor] = []
+    labels_all: list[torch.Tensor] = []
+    for x, y in loader:
+        logits_all.append(model(x))
+        labels_all.append(y)
+    return torch.cat(logits_all), torch.cat(labels_all)
+
+
+def _fit_temperature(logits: torch.Tensor, labels: torch.Tensor) -> float:
+    """Optimise a single scalar T minimising NLL on fixed logits (LBFGS)."""
+    log_t = torch.zeros(1, requires_grad=True)  # optimise log T for positivity
+    opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=80)
+    nll = nn.CrossEntropyLoss()
+
+    def closure() -> torch.Tensor:
+        opt.zero_grad()
+        loss = nll(logits / log_t.exp(), labels)
+        loss.backward()
+        return loss
+
+    opt.step(closure)  # type: ignore[arg-type]
+    return float(log_t.detach().exp())
+
+
+def _calibrate(model: torch.nn.Module, arch: str, classes: list[str], image_size: int, *, log_fn=print) -> float:
+    """Fit T on the deployment proxy and fold 1/T into the final linear layer.
+
+    Returns the fitted temperature. Folding means the exported logits are
+    pre-divided by T, so no inference-side change is needed."""
+    logits, labels = _collect_logits(model, classes, image_size)
+    t = _fit_temperature(logits, labels)
+    # Guard against a degenerate fit (too little data / already calibrated).
+    if not (0.2 <= t <= 5.0):
+        log_fn(f"  temperature fit = {t:.3f} out of [0.2, 5.0]; skipping fold")
+        return 1.0
+    fc = _final_linear(model, arch)
+    with torch.no_grad():
+        fc.weight.div_(t)
+        if fc.bias is not None:
+            fc.bias.div_(t)
+    before = torch.softmax(logits[:1], 1).max().item()
+    after = torch.softmax(logits[:1] / t, 1).max().item()
+    log_fn(
+        f"  temperature T={t:.3f} folded into {arch} head "
+        f"(sample top-1 prob {before*100:.1f}% → {after*100:.1f}%)"
+    )
+    return t
 
 
 def _export_fp32(model: torch.nn.Module, image_size: int, *, log_fn=print) -> Path:
@@ -119,6 +200,9 @@ def run(*, arch: str = "simple_resnet", log_fn=print) -> Path:
             "public/data/kanji-classes.json — the shipped ONNX will use "
             "the checkpoint's classes."
         )
+
+    if EXPORT_POLICY.calibrate_temperature:
+        _calibrate(model, arch, classes, image_size, log_fn=log_fn)
 
     fp32 = _export_fp32(model, image_size, log_fn=log_fn)
 

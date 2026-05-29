@@ -188,6 +188,31 @@ def _affine_fit_strokes(
     return out
 
 
+def _extend_endpoints(
+    pts: list[tuple[float, float]], overshoot_px: float, rng: random.Random
+) -> list[tuple[float, float]]:
+    """Move each end of a stroke along its own tangent by uniform(-o, o).
+
+    Positive moves overshoot (corners cross, as when a hand carries the pen
+    past the turn); negative undershoot (corners open, the dominant freehand
+    departure for box glyphs like 口/日 whose corners rarely seal). Operates
+    in KanjiVG viewport units, before the strokes are fit into the image.
+    """
+    if overshoot_px <= 0 or len(pts) < 2:
+        return pts
+    pts = list(pts)
+    for end, nbr in ((0, 1), (-1, -2)):
+        ex, ey = pts[end]
+        nx, ny = pts[nbr]
+        dx, dy = ex - nx, ey - ny
+        norm = math.hypot(dx, dy)
+        if norm < 1e-6:
+            continue
+        o = rng.uniform(-overshoot_px, overshoot_px)
+        pts[end] = (ex + dx / norm * o, ey + dy / norm * o)
+    return pts
+
+
 def rasterize_with_perturbation(
     ch: str,
     image_size: int,
@@ -233,6 +258,8 @@ def rasterize_with_perturbation(
             nx = cx + rx * ca - ry * sa + sdx + rng.gauss(0.0, jitter)
             ny = cy + rx * sa + ry * ca + sdy + rng.gauss(0.0, jitter)
             perturbed.append((nx, ny))
+        # Freehand corners: extend/retract each end along its tangent.
+        perturbed = _extend_endpoints(perturbed, pol.endpoint_overshoot_px, rng)
         strokes.append(perturbed)
 
     # --- Possibly add a short extraneous stroke ------------------------ #
@@ -248,9 +275,27 @@ def rasterize_with_perturbation(
         # the unperturbed base so we never return an all-zero training image.
         strokes = [list(s) for s in base]
 
+    # --- Semi-cursive stroke connections ------------------------------- #
+    # With some probability per adjacent-stroke gap, drag a faint hairline
+    # from one stroke's end to the next stroke's start, as in fast writing.
+    # Built before the fit (so it scales with the glyph) and rendered at half
+    # weight. Endpoints already include the overshoot above. Connectors sit
+    # inside the strokes' bbox, so they don't disturb the aspect-preserving
+    # fit; we transform them with the strokes and split them back out.
+    connectors: list[list[tuple[float, float]]] = []
+    if pol.p_connect_strokes > 0 and pol.connect_max_px > 0:
+        for k in range(len(strokes) - 1):
+            if rng.random() >= pol.p_connect_strokes:
+                continue
+            a, b = strokes[k][-1], strokes[k + 1][0]
+            if math.hypot(b[0] - a[0], b[1] - a[1]) <= pol.connect_max_px:
+                connectors.append([a, b])
+
     # --- Fit into the target image with margin ------------------------- #
     margin_frac = 0.10 + rng.uniform(0.0, 0.04)
-    strokes = _affine_fit_strokes(strokes, image_size, margin_frac)
+    n_real = len(strokes)
+    fitted = _affine_fit_strokes(strokes + connectors, image_size, margin_frac)
+    strokes, connectors = fitted[:n_real], fitted[n_real:]
 
     # --- Pick stroke thickness ----------------------------------------- #
     base_w = rng.uniform(pol.stroke_thickness_min, pol.stroke_thickness_max)
@@ -262,10 +307,7 @@ def rasterize_with_perturbation(
     canvas = Image.new("L", (image_size * scale, image_size * scale), color=0)
     draw = ImageDraw.Draw(canvas)
 
-    for stroke in strokes:
-        # Random thickness for this stroke, jittered around the drawing's
-        # base thickness so the strokes look like they came from one pen.
-        w = max(1.0, base_w + rng.uniform(-pol.stroke_thickness_vary, pol.stroke_thickness_vary))
+    def _draw_polyline(stroke: list[tuple[float, float]], w: float) -> None:
         r = (w * scale) / 2.0
         prev: tuple[float, float] | None = None
         for x, y in stroke:
@@ -274,11 +316,17 @@ def rasterize_with_perturbation(
                 draw.line([prev, (x2, y2)], fill=255, width=max(1, int(round(w * scale))))
             # Round cap — a filled circle at each sample point eliminates
             # the polygonal "elbow" PIL leaves at sharp direction changes.
-            draw.ellipse(
-                [x2 - r, y2 - r, x2 + r, y2 + r],
-                fill=255,
-            )
+            draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=255)
             prev = (x2, y2)
+
+    for stroke in strokes:
+        # Random thickness for this stroke, jittered around the drawing's
+        # base thickness so the strokes look like they came from one pen.
+        w = max(1.0, base_w + rng.uniform(-pol.stroke_thickness_vary, pol.stroke_thickness_vary))
+        _draw_polyline(stroke, w)
+    # Connecting hairlines: half weight so they read as a light pen-drag.
+    for conn in connectors:
+        _draw_polyline(conn, max(1.0, base_w * 0.5))
 
     out = canvas.resize((image_size, image_size), Image.BILINEAR)
     return np.asarray(out, dtype=np.float32) / 255.0

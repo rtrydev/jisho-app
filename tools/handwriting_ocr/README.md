@@ -124,7 +124,9 @@ thresholds live in `SegmentPolicy` (`config.py`) and must stay in sync with
     rasterizer can see. TTC sub-faces appear with `#N` after the flag.
 - **GPU strongly recommended** for training. CPU training is supported but
   slow (figure 1–2 weeks for a full 30-epoch run vs. 1–2 days on a 3060-class
-  GPU).
+  GPU). The device is auto-selected CUDA → **Apple MPS** (Metal, on Apple-
+  silicon Macs) → CPU; override with `--device`. AMP/mixed-precision is
+  CUDA-only — MPS and CPU run fp32.
 
 ## Knobs
 
@@ -154,6 +156,7 @@ legitimately tweak between runs:
 | `--batch-size N` | `TrainPolicy.batch_size` |
 | `--val-every N` | `TrainPolicy.val_every_n_epochs` (epoch 0 + last are always validated) |
 | `--patience N` | early-stopping patience in epochs since best val top-5 |
+| `--device NAME` | compute device: `auto` (default; CUDA → Apple MPS → CPU), or force `cuda`/`mps`/`cpu` |
 | `--limit-classes N` / `--samples-per-class N` | smoke-test knobs |
 
 Every other knob stays in config so runs are reproducible and diffable.
@@ -167,14 +170,17 @@ samples, under named conditions. The default `deployment` condition is
 ```powershell
 # Candidate = checkpoints/<arch>/best.pt; baseline = checkpoints/deployed_baseline.pt
 python -m tools.handwriting_ocr eval                       # deployment proxy (the gate)
-python -m tools.handwriting_ocr eval --condition all       # + clean ceiling + training dist
+python -m tools.handwriting_ocr eval --condition all       # + clean ceiling + freehand + training dist
 python -m tools.handwriting_ocr eval --baseline path/to/old.pt --condition deployment
 ```
 
 Each model is scored at its **own** input resolution on the same seeded
 sample (same character + same geometric skew), so a 96px candidate is directly
-comparable to a 64px baseline. The output reports top-1/top-5 for both plus a
-per-sample agreement tally.
+comparable to a 64px baseline. The output reports top-1/top-5 for both, a
+per-sample agreement tally, and a **per-cluster (box/hook) top-1 + confidence
+line** — the headline confusion diagnostic (see `RECOGNIZER_CHALLENGES.md`).
+Conditions: `deployment` (honest proxy), `clean` (sharp canonical ceiling),
+`freehand` (real-handwriting proxy: sharp + open corners + connections), `train`.
 
 > **Why this exists:** a prior run shipped-by-mistake-criteria — it was selected
 > on a font/ink/cutout-heavy val set the canvas never produces, and lost badly
