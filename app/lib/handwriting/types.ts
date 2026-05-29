@@ -26,3 +26,12 @@ export type KanjiClassesManifest = {
   count: number;
   classes: string[];
 };
+
+export type RecognizerManifest = {
+  schema: string;
+  /** Model filename, relative to /data/. */
+  model: string;
+  /** Short content hash, appended to the model URL as `?v=` to bust caches
+   *  when the bytes change. Produced by scripts/fingerprint-recognizer.mjs. */
+  version: string;
+};

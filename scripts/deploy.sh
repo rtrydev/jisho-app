@@ -94,8 +94,22 @@ if [[ ! -d "$OUT_DIR" ]]; then
 fi
 
 echo "→ syncing $OUT_DIR to s3://$BUCKET"
-# Long-cache fingerprinted assets; short-cache the entry points whose URL
-# is fixed across deploys (HTML, JSON, manifest).
+# Two cache policies, by URL stability:
+#   1. Content-addressed assets get a 1-year immutable cache. That covers the
+#      fingerprinted /_next/* bundles AND the handwriting recognizer: the model
+#      lives at a fixed path (/data/kanji-recognizer.onnx), but the loader
+#      requests it with a `?v=<contenthash>` query read from
+#      recognizer-manifest.json, so a retrained model is a *new* URL that every
+#      client re-fetches — even one holding the previous immutable copy.
+#   2. The fixed entry points (HTML, JSON, manifest) keep a stable URL across
+#      deploys, so they get a short TTL and must revalidate. This is what lets a
+#      returning client discover the new model hash in recognizer-manifest.json
+#      (a *.json, so it falls in this pass).
+#
+# NOTE: the large /data/*.gz dictionary artifacts are also immutably cached but
+# are NOT yet content-versioned — they rebuild rarely, so returning browsers
+# keep the prior copy until eviction. Give them the same manifest treatment if
+# that ever becomes a problem.
 aws s3 sync "$OUT_DIR" "s3://$BUCKET" \
   --delete \
   --exclude "*.html" \

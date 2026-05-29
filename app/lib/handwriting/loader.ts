@@ -14,10 +14,11 @@
 // pulls the JSEP build and would 404 on ort-wasm-simd-threaded.jsep.mjs.
 
 import type { InferenceSession } from "onnxruntime-web";
-import type { KanjiClassesManifest } from "./types";
+import type { KanjiClassesManifest, RecognizerManifest } from "./types";
 
 const CLASSES_URL = "/data/kanji-classes.json";
 const MODEL_URL = "/data/kanji-recognizer.onnx";
+const MODEL_MANIFEST_URL = "/data/recognizer-manifest.json";
 const WASM_PATHS = "/onnx/";
 
 export type RecognizerResources = {
@@ -44,15 +45,46 @@ async function loadClasses(onProgress?: LoaderProgress): Promise<string[]> {
   return manifest.classes;
 }
 
+/**
+ * Resolve the model URL with a content-hash cache-buster.
+ *
+ * The model is served from a fixed path with a long, immutable cache (see
+ * scripts/deploy.sh), so retrained bytes at the same URL would be ignored by
+ * any browser still holding the previous copy. scripts/fingerprint-recognizer.mjs
+ * writes a short content hash into recognizer-manifest.json at build time;
+ * appending it as `?v=<hash>` turns a new model into a new URL that every
+ * client re-fetches. Falls back to the bare URL when the manifest is absent
+ * (e.g. `next dev` before the script has run) — the dev server serves the
+ * file regardless of the query string.
+ */
+export async function resolveModelUrl(): Promise<string> {
+  try {
+    // `no-cache` forces a conditional request so a client always learns the
+    // latest hash (a cheap 304 when unchanged); the manifest is tiny and
+    // short-cached at the edge.
+    const res = await fetch(MODEL_MANIFEST_URL, { cache: "no-cache" });
+    if (res.ok) {
+      const manifest = (await res.json()) as RecognizerManifest;
+      if (typeof manifest.version === "string" && manifest.version) {
+        return `${MODEL_URL}?v=${encodeURIComponent(manifest.version)}`;
+      }
+    }
+  } catch {
+    /* fall through to the un-versioned URL */
+  }
+  return MODEL_URL;
+}
+
 async function loadSession(
   ort: typeof import("onnxruntime-web"),
   onProgress?: LoaderProgress,
 ): Promise<InferenceSession> {
   onProgress?.("Loading recognizer model…", 0);
-  const res = await fetch(MODEL_URL);
+  const url = await resolveModelUrl();
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(
-      `Failed to fetch ${MODEL_URL}: ${res.status}. Train + export the ` +
+      `Failed to fetch ${url}: ${res.status}. Train + export the ` +
         `model (see tools/handwriting_ocr/README.md).`,
     );
   }
