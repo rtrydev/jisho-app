@@ -55,9 +55,12 @@ export function HandwritingCanvas({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeStroke = useRef<Point[] | null>(null);
 
-  // Single combined effect: resize the backing store at the current DPR,
-  // then repaint all committed strokes. Runs on mount, on `size` changes,
-  // and on `strokes` changes (undo, clear, external mutation).
+  // Size the backing store at the current DPR. Kept separate from the repaint
+  // below because assigning `canvas.width`/`height` reallocates and clears the
+  // whole backing store — doing that on every committed stroke is needless
+  // main-thread work that adds latency between strokes on mobile. This only
+  // runs on mount and when `size` changes; the transform it sets persists for
+  // both the repaint effect and the live pointer drawing.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -69,6 +72,16 @@ export function HandwritingCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }, [size]);
+
+  // Repaint all committed strokes. Runs on `strokes` changes (undo, clear,
+  // external mutation) and after a resize — a cheap clear + replay, no backing-
+  // store reallocation.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     ctx.clearRect(0, 0, size, size);
     applyStrokeStyle(ctx);
     for (const stroke of strokes) {

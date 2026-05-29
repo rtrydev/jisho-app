@@ -37,6 +37,16 @@ type Mode = "type" | "draw" | "radicals";
 
 const TOP_K = 12;
 
+// Inference runs single-threaded ONNX on the main thread (see
+// lib/handwriting/loader.ts). Firing it the instant a stroke lands blocks the
+// main thread right when the user is bringing their finger back down for the
+// next stroke, so the canvas drops the `pointerdown` and the stroke "doesn't
+// start on touch". Debouncing means a flurry of strokes only triggers one
+// recognize pass — once the user pauses — keeping the main thread free while
+// they're actively writing. ~200ms is below the stroke-to-stroke gap of normal
+// handwriting yet still feels immediate once the hand stops.
+const RECOGNIZE_DEBOUNCE_MS = 200;
+
 /** True for any CJK ideograph (Unified Ideographs + Extension A). */
 function isCjk(ch: string): boolean {
   const cp = ch.codePointAt(0) ?? 0;
@@ -184,12 +194,18 @@ export function KanjiScreen({
     if (recognizerKind !== "ready") return;
     if (strokes.length === 0) return;
     let cancelled = false;
-    void recognizeFn(strokes, TOP_K).then((next) => {
-      if (cancelled) return;
-      setDrawCandidates(next);
-    });
+    // Debounced so rapid strokes don't each block the main thread mid-draw —
+    // see RECOGNIZE_DEBOUNCE_MS. The cleanup clears the pending timer, so a new
+    // stroke arriving within the window resets the wait instead of stacking up.
+    const timer = setTimeout(() => {
+      void recognizeFn(strokes, TOP_K).then((next) => {
+        if (cancelled) return;
+        setDrawCandidates(next);
+      });
+    }, RECOGNIZE_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [strokes, recognizeFn, recognizerKind, mode]);
 
