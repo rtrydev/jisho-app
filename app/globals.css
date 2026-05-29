@@ -2092,6 +2092,26 @@ button {
   scrollbar-width: thin;
   scrollbar-color: var(--ink-ghost) transparent;
 }
+/* A Draw stroke can drag past the canvas and sweep across the input panel,
+   candidate row, and word suggestions below it. Making that text unselectable
+   means the gesture can never start a selection there — the recurring "it
+   still selects something" — regardless of pointer-capture timing. The canvas
+   also suppresses `selectstart` while a stroke is active; this is the static
+   belt-and-suspenders. Scoped to these regions (not the whole screen) so the
+   Type field stays selectable and the detail card's meanings/readings stay
+   copyable. */
+.ks-input,
+.ks-candidates,
+.ks-word-suggestions {
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* …but the Type field is a real text input — keep it selectable even though
+   it lives inside the suppressed `.ks-input` panel. */
+.ks-type-input {
+  -webkit-user-select: text;
+  user-select: text;
+}
 @media (max-width: 540px) {
   .kanji-screen { padding: 14px 14px 24px; gap: 12px; }
 }
@@ -2241,7 +2261,14 @@ button {
 
 /* ---- Detail panel + shared empty state ---- */
 
-.ks-detail { flex: 0 0 auto; }
+/* Stack one card per detected character group (Draw mode can surface more
+   than one) with the same rhythm as the screen's other sections. */
+.ks-detail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .ks-empty {
   margin: 0;
   padding: 16px 4px;

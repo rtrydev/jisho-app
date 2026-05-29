@@ -21,7 +21,7 @@ import { Button } from "../components/Button";
 import { Eyebrow, Ornament } from "../components/Eyebrow";
 import * as Icon from "../components/Icon";
 import { HandwritingCanvas } from "../components/HandwritingCanvas";
-import { KanjiCard, type KanjiCardData } from "../components/KanjiCard";
+import { KanjiCard } from "../components/KanjiCard";
 import { KanjiTile } from "../components/KanjiTile";
 import { RadicalPicker } from "../components/RadicalPicker";
 import { Segmented } from "../components/Segmented";
@@ -228,17 +228,27 @@ export function KanjiScreen({
     setSelected(null);
   }, []);
 
-  // ----- Detail card data ------------------------------------------- //
+  // ----- Detail entries --------------------------------------------- //
+  //
+  // One entry per slot the user is inspecting. Draw mode can detect several
+  // character groups, and each gets its own card driven by that group's
+  // highlighted candidate (groupHighlights) — so a two-kanji drawing yields
+  // two cards, not one. Type/Radicals inspect the single explicit `selected`.
+  // An entry whose char isn't in the shipped class set carries a null `info`,
+  // so the detail shows the out-of-set note in its place.
+  const detailChars = useMemo<string[]>(() => {
+    if (mode === "draw") return groupHighlights.filter((c) => c.length > 0);
+    return selected ? [selected] : [];
+  }, [mode, groupHighlights, selected]);
 
-  const selectedInfo = selected && kanji.resources?.kanji[selected];
-  const examples = useMemo(
-    () => (selected ? findKanjiExamples(selected, 10) : []),
-    [selected, findKanjiExamples],
+  const detailEntries = useMemo(
+    () =>
+      detailChars.map((char) => {
+        const info = kanji.resources?.kanji[char] ?? null;
+        return { char, info, examples: info ? findKanjiExamples(char, 10) : [] };
+      }),
+    [detailChars, kanji.resources, findKanjiExamples],
   );
-  const cardData: KanjiCardData | null =
-    selected && selectedInfo
-      ? { char: selected, info: selectedInfo, examples }
-      : null;
 
   // ----- Actions ----------------------------------------------------- //
 
@@ -250,11 +260,11 @@ export function KanjiScreen({
     () => setStrokes((s) => (s.length === 0 ? s : s.slice(0, -1))),
     [],
   );
-  const onCopySelected = useCallback(() => {
-    if (selected && typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(selected);
+  const copyChar = useCallback((char: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      void navigator.clipboard.writeText(char);
     }
-  }, [selected]);
+  }, []);
 
   // ----- Empty / loading copy ---------------------------------------- //
 
@@ -390,18 +400,28 @@ export function KanjiScreen({
       <section className="ks-detail">
         {candidates.length === 0 ? null : dataNotReady ? (
           <p className="ks-empty ink-faint">{loadingMessage}</p>
-        ) : cardData ? (
-          <KanjiCard
-            card={cardData}
-            onCopy={onCopySelected}
-            onRadicalClick={onRadicalSearch}
-          />
-        ) : selected && !selectedInfo ? (
-          <p className="ks-empty ink-faint">
-            <span className="jp">{selected}</span> is outside the shipped class
-            set (kanji.json.gz only covers JMdict ∩ KANJIDIC2 ∩ RADKFILE).
-          </p>
-        ) : null}
+        ) : (
+          detailEntries.map((entry, i) =>
+            entry.info ? (
+              <KanjiCard
+                key={`${i}-${entry.char}`}
+                card={{
+                  char: entry.char,
+                  info: entry.info,
+                  examples: entry.examples,
+                }}
+                onCopy={() => copyChar(entry.char)}
+                onRadicalClick={onRadicalSearch}
+              />
+            ) : (
+              <p key={`${i}-${entry.char}`} className="ks-empty ink-faint">
+                <span className="jp">{entry.char}</span> is outside the shipped
+                class set (kanji.json.gz only covers JMdict ∩ KANJIDIC2 ∩
+                RADKFILE).
+              </p>
+            ),
+          )
+        )}
       </section>
     </div>
   );
