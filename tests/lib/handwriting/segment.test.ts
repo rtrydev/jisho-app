@@ -1,172 +1,74 @@
 import { describe, it, expect } from "vitest";
-import {
-  segmentStrokes,
-  splitGroupAtLargestGap,
-} from "../../../app/lib/handwriting/segment";
+import { splitStrokesByBoundaries } from "../../../app/lib/handwriting/segment";
 import type { Stroke } from "../../../app/lib/handwriting/types";
 
-// ───────────────────────────────────────────────────────────────────
-// Stroke helpers. Coordinates are in arbitrary canvas units — the
-// segmenter normalises by overall y-span, so absolute scale only
-// matters relative to itself within one fixture.
-// ───────────────────────────────────────────────────────────────────
-
-/** Single horizontal stroke spanning `[x0, x1]` at the given y. */
-function hLine(x0: number, x1: number, y: number): Stroke {
-  return [
-    { x: x0, y },
-    { x: x1, y },
-  ];
+// A stroke is just a list of points; the splitter only looks at each stroke's
+// horizontal centroid relative to the boundary x-positions. Helper builds a
+// 1-point stroke at a given x (centroid = x) so assignment is unambiguous.
+function at(x: number): Stroke {
+  return [{ x, y: 0 }];
 }
 
-/** Single vertical stroke spanning `[y0, y1]` at the given x. */
-function vLine(x: number, y0: number, y1: number): Stroke {
-  return [
-    { x, y: y0 },
-    { x, y: y1 },
-  ];
-}
-
-/** Rectangle-like 4-stroke "kanji" centred at (cx, cy) with size s. Crude
- *  stand-in for a real character: bounds are exactly cx±s/2, cy±s/2. */
-function fakeKanji(cx: number, cy: number, s: number): Stroke[] {
-  const half = s / 2;
-  return [
-    hLine(cx - half, cx + half, cy - half),
-    vLine(cx + half, cy - half, cy + half),
-    hLine(cx + half, cx - half, cy + half),
-    vLine(cx - half, cy + half, cy - half),
-  ];
-}
-
-describe("segmentStrokes", () => {
-  it("returns an empty array for empty input", () => {
-    expect(segmentStrokes([])).toEqual([]);
+describe("splitStrokesByBoundaries", () => {
+  it("returns an empty array for no strokes", () => {
+    expect(splitStrokesByBoundaries([], [])).toEqual([]);
+    expect(splitStrokesByBoundaries([], [50])).toEqual([]);
   });
 
-  it("returns one group for a single stroke", () => {
-    const s = hLine(0, 100, 50);
-    const out = segmentStrokes([s]);
+  it("returns a single group when there are no boundaries", () => {
+    const s = [at(10), at(20), at(30)];
+    const out = splitStrokesByBoundaries(s, []);
     expect(out).toHaveLength(1);
-    expect(out[0]).toEqual([s]);
+    expect(out[0]).toEqual(s);
   });
 
-  it("treats 三 (three horizontal strokes stacked) as one character", () => {
-    // All three strokes span the same x range — no gap, can't split.
-    const strokes: Stroke[] = [
-      hLine(0, 100, 10),
-      hLine(0, 100, 50),
-      hLine(0, 100, 90),
-    ];
-    expect(segmentStrokes(strokes)).toHaveLength(1);
+  it("splits strokes into characters by centroid relative to a boundary", () => {
+    const a = at(10);
+    const b = at(40);
+    const c = at(120);
+    const d = at(150);
+    // Boundary at x=80 → {a,b} | {c,d}
+    const out = splitStrokesByBoundaries([a, b, c, d], [80]);
+    expect(out).toEqual([
+      [a, b],
+      [c, d],
+    ]);
   });
 
-  it("treats 川 (three roughly-equal vertical strokes) as one character", () => {
-    // Three vertical lines at x = 10, 50, 90 spanning the full height.
-    // Inter-stroke gap is ~40 (per stroke) but full height is 100, so
-    // gap/H ≈ 0.4 — sits *at* the largeGapFrac threshold. The merged
-    // aspect ratio at the third stroke is ~100/100 = 1.0, well under the
-    // 1.3 aspect threshold, so the heuristic should keep it as one cluster.
-    const strokes: Stroke[] = [
-      vLine(10, 0, 100),
-      vLine(50, 0, 100),
-      vLine(90, 0, 100),
-    ];
-    const out = segmentStrokes(strokes);
-    expect(out).toHaveLength(1);
+  it("handles multiple boundaries (3 characters)", () => {
+    const out = splitStrokesByBoundaries(
+      [at(10), at(60), at(110), at(210)],
+      [50, 150],
+    );
+    expect(out).toEqual([[at(10)], [at(60), at(110)], [at(210)]]);
   });
 
-  it("splits two square kanji written side-by-side", () => {
-    // Two 100-unit-wide square kanji, ~30 unit gap between them. Each
-    // cluster on its own is ~1.0 aspect; the merged width would be 230
-    // against a height of 100 (aspect 2.3) — well past the threshold,
-    // and the gap is comfortably above minGapFrac * 100.
-    const first = fakeKanji(50, 50, 100);
-    const second = fakeKanji(180, 50, 100);
-    const out = segmentStrokes([...first, ...second]);
-    expect(out).toHaveLength(2);
-    expect(out[0]).toHaveLength(first.length);
-    expect(out[1]).toHaveLength(second.length);
+  it("skips character intervals that caught no strokes", () => {
+    // Boundaries at 50 and 150, but nothing lands in the middle interval.
+    const out = splitStrokesByBoundaries([at(10), at(200)], [50, 150]);
+    expect(out).toEqual([[at(10)], [at(200)]]);
   });
 
-  it("preserves original drawing order within each cluster", () => {
-    // Draw second kanji's strokes interleaved with first kanji's.
-    const left = fakeKanji(50, 50, 100);
-    const right = fakeKanji(200, 50, 100);
-    // Interleaved input: l0, r0, l1, r1, l2, r2, l3, r3.
-    const interleaved: Stroke[] = [];
-    for (let i = 0; i < left.length; i++) {
-      interleaved.push(left[i], right[i]);
-    }
-    const out = segmentStrokes(interleaved);
-    expect(out).toHaveLength(2);
-    // Each cluster comes back with its strokes in their original
-    // (interleaved) submission order — the same set as the source kanji
-    // but ordered by index in the input list.
-    expect(out[0]).toEqual(left);
-    expect(out[1]).toEqual(right);
+  it("orders groups left-to-right and is unaffected by stroke order", () => {
+    const left = at(10);
+    const right = at(200);
+    const out = splitStrokesByBoundaries([right, left], [100]);
+    expect(out).toEqual([[left], [right]]);
   });
 
-  it("splits even at a small gap when the merged aspect ratio exceeds the threshold", () => {
-    // Two clusters of horizontal strokes with a modest inter-cluster gap.
-    // Each cluster spans ~100 wide × 100 tall (square-ish).
-    const left: Stroke[] = [
-      hLine(0, 100, 10),
-      hLine(0, 100, 90),
-      vLine(0, 0, 100),
-      vLine(100, 0, 100),
-    ];
-    const right: Stroke[] = [
-      hLine(130, 230, 10),
-      hLine(130, 230, 90),
-      vLine(130, 0, 100),
-      vLine(230, 0, 100),
-    ];
-    // Inter-cluster gap is 30 / 100 = 0.30 — over minGapFrac (0.15) but
-    // under largeGapFrac (0.4). Aspect ratio at merge: 230/100 = 2.3 — over
-    // the 1.3 threshold. Expect a split.
-    expect(segmentStrokes([...left, ...right])).toHaveLength(2);
-  });
-});
-
-describe("splitGroupAtLargestGap", () => {
-  it("returns null for an empty or single-stroke group", () => {
-    expect(splitGroupAtLargestGap([])).toBeNull();
-    expect(splitGroupAtLargestGap([hLine(0, 10, 5)])).toBeNull();
+  it("uses the mean x as the centroid for multi-point strokes", () => {
+    // A stroke whose points straddle the boundary but whose mean is left of it.
+    const straddling: Stroke = [
+      { x: 60, y: 0 },
+      { x: 90, y: 10 },
+    ]; // centroid x = 75
+    const out = splitStrokesByBoundaries([straddling, at(140)], [80]);
+    expect(out).toEqual([[straddling], [at(140)]]);
   });
 
-  it("returns null when every stroke overlaps its neighbours horizontally", () => {
-    // Two strokes covering the same x range — no clean cut.
-    const strokes: Stroke[] = [hLine(0, 100, 10), hLine(0, 100, 90)];
-    expect(splitGroupAtLargestGap(strokes)).toBeNull();
-  });
-
-  it("splits at the widest gap", () => {
-    // Three vertical strokes at x = 10, 50, 200. Widest gap is between
-    // 50 and 200 — the split should put stroke 0+1 on the left and
-    // stroke 2 on the right.
-    const a = vLine(10, 0, 100);
-    const b = vLine(50, 0, 100);
-    const c = vLine(200, 0, 100);
-    const out = splitGroupAtLargestGap([a, b, c]);
-    expect(out).not.toBeNull();
-    expect(out).toHaveLength(2);
-    expect(out![0]).toEqual([a, b]);
-    expect(out![1]).toEqual([c]);
-  });
-
-  it("preserves original drawing order within each half", () => {
-    // Two square kanji submitted with their strokes interleaved.
-    const left = fakeKanji(50, 50, 100);
-    const right = fakeKanji(250, 50, 100);
-    const interleaved: Stroke[] = [];
-    for (let i = 0; i < left.length; i++) {
-      interleaved.push(left[i], right[i]);
-    }
-    const out = splitGroupAtLargestGap(interleaved);
-    expect(out).not.toBeNull();
-    expect(out).toHaveLength(2);
-    expect(out![0]).toEqual(left);
-    expect(out![1]).toEqual(right);
+  it("ignores empty strokes", () => {
+    const empty: Stroke = [];
+    const out = splitStrokesByBoundaries([empty, at(10), at(200)], [100]);
+    expect(out).toEqual([[at(10)], [at(200)]]);
   });
 });

@@ -33,6 +33,13 @@ CLASSES_OUT = OUTPUT_DIR / "kanji-classes.json"
 MODEL_OUT = OUTPUT_DIR / "kanji-recognizer.onnx"
 MODEL_FP32_OUT = WORK_DIR / "kanji-recognizer.fp32.onnx"
 
+# Character-boundary segmenter (a separate, small model — see segment_*.py).
+# It splits a multi-character drawing into single-character regions so the
+# recognizer above can run per character; the recognizer itself is unchanged.
+SEGMENTER_OUT = OUTPUT_DIR / "kanji-segmenter.onnx"
+SEGMENTER_FP32_OUT = WORK_DIR / "kanji-segmenter.fp32.onnx"
+SEGMENTER_CHECKPOINT_DIR = WORK_DIR / "seg-checkpoints"
+
 # KanjiVG release source. Pinned to a specific tag; bump deliberately.
 # Verify the tag at https://github.com/KanjiVG/kanjivg/releases — releases
 # use tag `rYYYYMMDD` but assets drop the `r` prefix
@@ -190,6 +197,39 @@ class TrainPolicy:
 
 
 @dataclass(frozen=True)
+class SegmentPolicy:
+    """How a multi-character training *strip* is synthesized and how the
+    boundary model is shaped. The strip is a height-normalized line of 1–4
+    characters; the model predicts a 1-D heatmap that peaks at the gaps
+    between adjacent characters (not at gaps *inside* a character)."""
+
+    # Model input strip (height-normalized, content left-aligned + padded).
+    strip_h: int = 64
+    strip_w: int = 384
+    # Width downsampling factor of the FCN → output heatmap length = strip_w // width_stride.
+    width_stride: int = 4
+    # Gaussian bump half-width (in output columns) placed at each true boundary.
+    target_sigma: float = 2.0
+
+    # Character-count distribution per sample (n = 1..4). A healthy share of
+    # n=1 (incl. wide multi-component kanji) teaches the model NOT to cut a
+    # single character at its internal gaps.
+    count_weights: tuple[float, float, float, float] = (0.20, 0.34, 0.28, 0.18)
+
+    # Per-glyph size as a fraction of strip height (scaled by the larger of
+    # w/h so aspect is preserved — 一 stays short-and-wide, 川 fills the cell).
+    glyph_min_frac: float = 0.58
+    glyph_max_frac: float = 0.94
+    # Inter-character gap as a fraction of strip height (small → hard cases).
+    gap_min_frac: float = 0.05
+    gap_max_frac: float = 0.45
+    # Leading/trailing margin (px) and vertical jitter (fraction of height).
+    margin_min: float = 2.0
+    margin_max: float = 16.0
+    v_jitter: float = 0.05
+
+
+@dataclass(frozen=True)
 class ExportPolicy:
     """ONNX export + quantization."""
 
@@ -201,6 +241,7 @@ class ExportPolicy:
 
 
 CLASS_POLICY = ClassPolicy()
+SEGMENT_POLICY = SegmentPolicy()
 # Training distribution (heavier, for generalization).
 SYNTH_POLICY = SynthesisPolicy()
 # Validation distribution = the DEPLOYMENT proxy. This is what selects

@@ -4,14 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/fingerprint-recognizer.mjs",
+    "prebuild": "node scripts/fingerprint-recognizer.mjs && node scripts/fingerprint-segmenter.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
     "data:fetch": "node scripts/fetch-prebuilt-data.mjs",
-    "postinstall": "node scripts/sync-kuromoji-dict.mjs && node scripts/sync-onnx-runtime.mjs && node scripts/fingerprint-recognizer.mjs"
+    "postinstall": "node scripts/sync-kuromoji-dict.mjs && node scripts/sync-onnx-runtime.mjs && node scripts/fingerprint-recognizer.mjs && node scripts/fingerprint-segmenter.mjs"
   },
   "dependencies": {
     "kuromoji": "^0.1.2",

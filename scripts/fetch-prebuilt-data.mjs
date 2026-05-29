@@ -16,6 +16,7 @@
 //   * /data/radkfile.json.gz     — Stage 7 radical → kanji map
 //   * /data/kanji-classes.json   — OCR class index
 //   * /data/kanji-recognizer.onnx — OCR INT8 model
+//   * /data/kanji-segmenter.onnx  — character-boundary model (Draw mode)
 //
 // When the experimental artifacts 404, the script logs a hint that those
 // features need a local pipeline / training run and continues.
@@ -47,6 +48,7 @@ const OPTIONAL = [
   "radkfile.json.gz",
   "kanji-classes.json",
   "kanji-recognizer.onnx",
+  "kanji-segmenter.onnx",
 ];
 
 const args = new Set(process.argv.slice(2));

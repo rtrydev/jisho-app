@@ -80,10 +80,20 @@ describe("findWordCombinations", () => {
       resources,
       [
         slot(["漢", 0.9]),
-        slot(["字", 0.02]), // top score under default 0.05 floor
+        slot(["字", 0.005]), // top score under the default 0.01 floor
       ],
     );
     expect(out).toEqual([]);
+  });
+
+  it("still matches when top scores are low but above the floor (recognizer softmax runs small)", () => {
+    // The handwriting recognizer often peaks well under 0.1 even when correct;
+    // a real word must still surface (regression: 日本 vanished at 本=0.04).
+    const out = findWordCombinations(resources, [
+      slot(["漢", 0.07]),
+      slot(["字", 0.04]),
+    ]);
+    expect(out.map((s) => s.headword)).toContain("漢字");
   });
 
   it("respects perPositionLimit when building the cartesian product", () => {
@@ -99,6 +109,18 @@ describe("findWordCombinations", () => {
     );
     const heads = out.map((s) => s.headword);
     expect(heads).toEqual(["漢字"]);
+  });
+
+  it("recovers a 2-char word from a contiguous sub-span when an extra group is detected", () => {
+    // Segmentation over-detected: a 2-kanji compound (漢字) came back as three
+    // groups, the third being unrelated. The full 3-char concatenation isn't a
+    // word, but the leading sub-span is — and must still surface.
+    const out = findWordCombinations(resources, [
+      slot(["漢", 0.9]),
+      slot(["字", 0.9]),
+      slot(["犬", 0.9]),
+    ]);
+    expect(out.map((s) => s.headword)).toContain("漢字");
   });
 
   it("ranks higher-frequency words above lower-frequency ones when joint scores are comparable", () => {

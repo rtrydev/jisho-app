@@ -129,15 +129,22 @@ export type WordCombinationSlot = ReadonlyArray<{
   score: number;
 }>;
 
-/** Cross every per-position candidate with every other, look up each
- *  combination in the dictionary, and rank the hits by joint recogniser
- *  confidence × dictionary frequency.
+/** Look up dictionary words spanning the recognised per-position candidates,
+ *  and rank the hits by joint recogniser confidence × dictionary frequency.
  *
- *  Strictly bounded combinatorial work: `perPositionLimit ** slots.length`
- *  hash lookups in the worst case (≤ 125 with defaults), each O(1). Returns
- *  an empty array when fewer than two slots are supplied, or when any
- *  position's top candidate sits below `minTopScore` — both signal that
- *  there is nothing meaningful to suggest. */
+ *  Every *contiguous run* of two or more slots is tried against the
+ *  dictionary, not just the full-width concatenation. Segmentation can emit
+ *  one more group than the word actually has — e.g. a two-kanji compound drawn
+ *  as three detected characters — and an all-or-nothing match on the full slot
+ *  count would then miss the real word even when both its characters are the
+ *  top-1 of adjacent slots. Scanning sub-spans recovers those.
+ *
+ *  Bounded combinatorial work: for S slots there are O(S²) contiguous runs,
+ *  each doing ≤ `perPositionLimit ** runLength` O(1) hash lookups. With the
+ *  defaults and the 2–4 slots Draw mode produces this stays in the low
+ *  thousands of lookups. Returns an empty array when fewer than two slots are
+ *  supplied, or when any position's top candidate sits below `minTopScore` —
+ *  both signal there is nothing meaningful to suggest. */
 export function findWordCombinations(
   resources: EngineResources,
   slots: ReadonlyArray<WordCombinationSlot>,
@@ -149,7 +156,14 @@ export function findWordCombinations(
 ): WordSuggestion[] {
   const perPos = options?.perPositionLimit ?? 5;
   const resultLimit = options?.resultLimit ?? 6;
-  const minTopScore = options?.minTopScore ?? 0.05;
+  // Floor below which a slot's top candidate is treated as "the recognizer is
+  // not really sure here" and word lookup is skipped. The handwriting
+  // recognizer's softmax is low-magnitude — a confidently-recognized character
+  // often peaks at only 0.05–0.20 (visually ambiguous kanji like 日 even
+  // lower) — so this must sit well under that, or real words never surface.
+  // The dictionary lookup itself is the real filter: only genuine headwords
+  // match regardless of score.
+  const minTopScore = options?.minTopScore ?? 0.01;
   if (slots.length < 2) return [];
 
   const trimmed: WordCombinationSlot[] = [];
@@ -158,48 +172,51 @@ export function findWordCombinations(
     trimmed.push(g.slice(0, perPos));
   }
 
-  // Cartesian product carrying a running joint score (product of softmax
-  // probs). We keep all combinations and filter against the dictionary in
-  // one sweep at the end rather than mutating the working set mid-product.
+  // For every contiguous run of slots [start, end) of length ≥ 2, build the
+  // Cartesian product (carrying a running joint score = product of softmax
+  // probs) and keep any product that is a real headword. Dedupe by headword,
+  // keeping the highest-scoring occurrence.
   type Combo = { chars: string; score: number };
-  let combos: Combo[] = [{ chars: "", score: 1 }];
-  for (const slot of trimmed) {
-    const next: Combo[] = [];
-    for (const c of combos) {
-      for (const cand of slot) {
-        next.push({
-          chars: c.chars + cand.char,
-          score: c.score * cand.score,
+  const best = new Map<string, WordSuggestion>();
+  for (let start = 0; start < trimmed.length; start++) {
+    let combos: Combo[] = [{ chars: "", score: 1 }];
+    for (let end = start + 1; end <= trimmed.length; end++) {
+      const next: Combo[] = [];
+      for (const c of combos) {
+        for (const cand of trimmed[end - 1]) {
+          next.push({ chars: c.chars + cand.char, score: c.score * cand.score });
+        }
+      }
+      combos = next;
+      if (end - start < 2) continue; // single-slot spans aren't words
+      for (const combo of combos) {
+        const entry = resources.dictionary.words[combo.chars];
+        if (!entry) continue;
+        const prev = best.get(combo.chars);
+        if (prev && prev.jointScore >= combo.score) continue;
+        best.set(combo.chars, {
+          headword: combo.chars,
+          reading: entry.r[0],
+          gloss: entry.s[0]?.glosses[0] ?? "",
+          freq: entry.f ?? 0,
+          jointScore: combo.score,
         });
       }
     }
-    combos = next;
   }
 
-  const matches: WordSuggestion[] = [];
-  const seen = new Set<string>();
-  for (const combo of combos) {
-    if (seen.has(combo.chars)) continue;
-    const entry = resources.dictionary.words[combo.chars];
-    if (!entry) continue;
-    seen.add(combo.chars);
-    matches.push({
-      headword: combo.chars,
-      reading: entry.r[0],
-      gloss: entry.s[0]?.glosses[0] ?? "",
-      freq: entry.f ?? 0,
-      jointScore: combo.score,
-    });
-  }
-
-  // Rank by joint confidence × log(1 + freq). The log keeps a single
-  // 1000×-more-common word from dominating over slightly-less-frequent
+  // Rank by confidence × log(1 + freq). The confidence is length-neutralised
+  // (geometric mean of the per-position probs) so a longer compound isn't
+  // penalised for multiplying more sub-1 scores, and a mild length factor lets
+  // a real multi-kanji word outrank a shorter substring of it at comparable
+  // confidence. The log keeps a single 1000×-more-common word from dominating
   // alternatives the recogniser was much more sure about.
-  matches.sort((a, b) => {
-    const aw = a.jointScore * Math.log1p(a.freq);
-    const bw = b.jointScore * Math.log1p(b.freq);
-    return bw - aw;
-  });
+  const weight = (s: WordSuggestion): number => {
+    const len = Math.max(1, s.headword.length);
+    return Math.pow(s.jointScore, 1 / len) * Math.log1p(s.freq) * len;
+  };
+  const matches = [...best.values()];
+  matches.sort((a, b) => weight(b) - weight(a));
   return matches.slice(0, resultLimit);
 }
 

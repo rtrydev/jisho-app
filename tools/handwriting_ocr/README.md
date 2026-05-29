@@ -66,6 +66,33 @@ Each subcommand is independent and idempotent — re-running step 1 after a
 JMdict update only changes `kanji-classes.json`; you need to retrain after to
 match the new class indices.
 
+## Character-boundary segmenter
+
+A **separate, small model** (~400k params, ~10 min on CPU) splits a
+multi-character drawing into single-character regions so the recognizer above
+can run per character. The recognizer is unchanged. It predicts a 1-D heatmap
+of character *boundaries* over a height-normalized strip; a decode step keeps
+only peaks flanked by ink on both sides (so it never cuts inside 川/明, and
+never fires at a trailing edge). Trained on the same synthetic renderer
+(`rasterize_with_perturbation`), reusing `fetch-kanjivg` / `fetch-fonts`.
+
+```powershell
+# Train (needs KanjiVG; ~10 min CPU). Selects best by boundary-count accuracy.
+python -m tools.handwriting_ocr segment-train --epochs 20 --train-samples 6000
+
+# Validate: boundary count + end-to-end split→recognize on rendered words.
+python -m tools.handwriting_ocr segment-validate --trials 10
+
+# Export fp32 ONNX (the model is tiny — no quantization).
+python -m tools.handwriting_ocr segment-export
+```
+
+The browser loads the segmenter alongside the recognizer
+(`app/lib/handwriting/loader.ts`); it's optional — a missing model degrades to
+treating the whole drawing as one character. Strip size / stride / decode
+thresholds live in `SegmentPolicy` (`config.py`) and must stay in sync with
+`app/lib/handwriting/segmentStrip.ts`.
+
 ## Outputs
 
 | File | Stage | What it is |
@@ -74,6 +101,8 @@ match the new class indices.
 | `.handwriting-work/kanjivg/kanji/*.svg` | fetch-kanjivg | Per-character SVG stroke paths. Working artifact, not shipped. |
 | `.handwriting-work/checkpoints/*.pt` | train | PyTorch checkpoints, best by top-5 on the deployment-proxy validation distribution (`VAL_POLICY`). Self-describing: each stores its `arch` + `image_size`. |
 | `public/data/kanji-recognizer.onnx` | export | The shipped model, int8-quantized. |
+| `.handwriting-work/seg-checkpoints/*.pt` | segment-train | Boundary-model checkpoints, best by validation boundary-count accuracy. |
+| `public/data/kanji-segmenter.onnx` | segment-export | The shipped character-boundary model, fp32 (~1.6 MB). |
 
 ## Prerequisites
 

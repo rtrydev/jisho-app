@@ -19,11 +19,17 @@ import type { KanjiClassesManifest, RecognizerManifest } from "./types";
 const CLASSES_URL = "/data/kanji-classes.json";
 const MODEL_URL = "/data/kanji-recognizer.onnx";
 const MODEL_MANIFEST_URL = "/data/recognizer-manifest.json";
+const SEGMENTER_URL = "/data/kanji-segmenter.onnx";
+const SEGMENTER_MANIFEST_URL = "/data/segmenter-manifest.json";
 const WASM_PATHS = "/onnx/";
 
 export type RecognizerResources = {
   classes: string[];
   session: InferenceSession;
+  /** Character-boundary segmenter (splits a multi-character drawing). Null when
+   *  the artifact is absent or failed to load — callers then fall back to
+   *  treating the whole drawing as a single character. */
+  segmenter: InferenceSession | null;
 };
 
 export type LoaderProgress = (step: string, ratio: number) => void;
@@ -57,30 +63,35 @@ async function loadClasses(onProgress?: LoaderProgress): Promise<string[]> {
  * (e.g. `next dev` before the script has run) — the dev server serves the
  * file regardless of the query string.
  */
-export async function resolveModelUrl(): Promise<string> {
+async function resolveVersionedUrl(modelUrl: string, manifestUrl: string): Promise<string> {
   try {
     // `no-cache` forces a conditional request so a client always learns the
     // latest hash (a cheap 304 when unchanged); the manifest is tiny and
     // short-cached at the edge.
-    const res = await fetch(MODEL_MANIFEST_URL, { cache: "no-cache" });
+    const res = await fetch(manifestUrl, { cache: "no-cache" });
     if (res.ok) {
       const manifest = (await res.json()) as RecognizerManifest;
       if (typeof manifest.version === "string" && manifest.version) {
-        return `${MODEL_URL}?v=${encodeURIComponent(manifest.version)}`;
+        return `${modelUrl}?v=${encodeURIComponent(manifest.version)}`;
       }
     }
   } catch {
     /* fall through to the un-versioned URL */
   }
-  return MODEL_URL;
+  return modelUrl;
+}
+
+export function resolveModelUrl(): Promise<string> {
+  return resolveVersionedUrl(MODEL_URL, MODEL_MANIFEST_URL);
 }
 
 async function loadSession(
   ort: typeof import("onnxruntime-web"),
+  url: string,
+  label: string,
   onProgress?: LoaderProgress,
 ): Promise<InferenceSession> {
-  onProgress?.("Loading recognizer model…", 0);
-  const url = await resolveModelUrl();
+  onProgress?.(label, 0);
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(
@@ -95,7 +106,7 @@ async function loadSession(
   const reader = res.body?.getReader();
   if (!reader) {
     const buf = await res.arrayBuffer();
-    onProgress?.("Loading recognizer model…", 1);
+    onProgress?.(label, 1);
     return ort.InferenceSession.create(new Uint8Array(buf), sessionOptions());
   }
   const chunks: Uint8Array[] = [];
@@ -105,7 +116,7 @@ async function loadSession(
     if (done) break;
     chunks.push(value);
     loaded += value.length;
-    if (total > 0) onProgress?.("Loading recognizer model…", loaded / total);
+    if (total > 0) onProgress?.(label, loaded / total);
   }
   const buf = new Uint8Array(loaded);
   let off = 0;
@@ -113,8 +124,27 @@ async function loadSession(
     buf.set(c, off);
     off += c.length;
   }
-  onProgress?.("Loading recognizer model…", 1);
+  onProgress?.(label, 1);
   return ort.InferenceSession.create(buf, sessionOptions());
+}
+
+/** Load the boundary segmenter. Best-effort: a missing/broken artifact resolves
+ *  to null so the recognizer still works (whole drawing = one character). */
+async function loadSegmenter(
+  ort: typeof import("onnxruntime-web"),
+  onProgress?: LoaderProgress,
+): Promise<InferenceSession | null> {
+  try {
+    const url = await resolveVersionedUrl(SEGMENTER_URL, SEGMENTER_MANIFEST_URL);
+    return await loadSession(ort, url, "Loading segmenter…", onProgress);
+  } catch (err) {
+    console.warn(
+      "[handwriting] boundary segmenter unavailable — falling back to " +
+        "single-character recognition (multi-character drawings won't split):",
+      err,
+    );
+    return null;
+  }
 }
 
 function sessionOptions(): import("onnxruntime-web").InferenceSession.SessionOptions {
@@ -142,23 +172,29 @@ export function loadRecognizer(
     ort.env.wasm.wasmPaths = WASM_PATHS;
     // Threading wants COOP/COEP headers we don't set; force single-thread.
     ort.env.wasm.numThreads = 1;
-    // Run the WASM backend in a worker thread. A recognize pass fires several
-    // `session.run` forward passes (segmentation + confidence re-splits); on
-    // the main thread that blocks pointer events right as the user starts the
-    // next stroke, so the canvas drops the `pointerdown` ("stroke doesn't start
-    // on touch"). Proxying inference to ORT's own worker (it bundles
-    // `ort-wasm-proxy-worker` and creates it itself — nothing for us to ship or
-    // wire up) keeps the main thread free. Orthogonal to numThreads, so this
-    // stays single-threaded and needs no cross-origin isolation. Preferred over
-    // a hand-rolled worker: a custom `new Worker(new URL("./x.ts", …))` makes
-    // Turbopack emit the raw .ts as a static asset rather than transpiling it.
-    ort.env.wasm.proxy = true;
+    // Inference runs on the main thread (proxy OFF). The proxy worker was added
+    // back when a recognize pass fired many `session.run` calls during active
+    // drawing; recognition now runs once, after the 150ms debounce when the
+    // pointer is already idle, so it no longer competes with `pointerdown`.
+    // More importantly, ORT-web's proxy worker misbehaves with MORE THAN ONE
+    // session in it — since adding the boundary segmenter (a second session),
+    // proxying corrupted the recognizer's results (clean 日 → 已). Running both
+    // sessions on the main thread fixes that; the brief post-debounce compute
+    // (one segmenter pass + a few recognizer passes) is not noticeable.
+    ort.env.wasm.proxy = false;
 
+    const recognizerUrl = await resolveModelUrl();
     const [classes, session] = await Promise.all([
       loadClasses(onProgress),
-      loadSession(ort, onProgress),
+      loadSession(ort, recognizerUrl, "Loading recognizer model…", onProgress),
     ]);
-    return { classes, session };
+    // Create the segmenter session *after* the recognizer rather than
+    // concurrently: under `wasm.proxy = true` both sessions share one worker,
+    // and racing two InferenceSession.create calls through its init has been a
+    // source of flaky second-session failures. Sequencing costs a little load
+    // time and removes the race.
+    const segmenter = await loadSegmenter(ort);
+    return { classes, session, segmenter };
   })();
   return _resourcesPromise;
 }

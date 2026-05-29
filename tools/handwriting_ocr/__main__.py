@@ -97,6 +97,35 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_segment_train(args: argparse.Namespace) -> int:
+    from . import segment_train
+
+    kwargs = {}
+    if args.epochs is not None:
+        kwargs["epochs"] = args.epochs
+    if args.batch_size is not None:
+        kwargs["batch_size"] = args.batch_size
+    if args.train_samples is not None:
+        kwargs["train_samples"] = args.train_samples
+    if args.num_workers is not None:
+        kwargs["num_workers"] = args.num_workers
+    segment_train.train(**kwargs)
+    return 0
+
+
+def _cmd_segment_export(args: argparse.Namespace) -> int:
+    from . import segment_export
+
+    segment_export.run()
+    return 0
+
+
+def _cmd_segment_validate(args: argparse.Namespace) -> int:
+    from . import segment_validate
+
+    return segment_validate.run(trials=args.trials)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m tools.handwriting_ocr",
@@ -253,6 +282,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which trained architecture's best checkpoint to export.",
     )
     sp.set_defaults(func=_cmd_export)
+
+    # --- Character-boundary segmenter (separate small model) ------------- #
+    sp = sub.add_parser("segment-train", help="Train the character-boundary segmenter.")
+    sp.add_argument("--epochs", type=int, default=None)
+    sp.add_argument("--batch-size", type=int, default=None)
+    sp.add_argument("--train-samples", type=int, default=None, help="Synthetic strips per epoch.")
+    sp.add_argument("--num-workers", type=int, default=None, help="DataLoader workers (default 4).")
+    sp.set_defaults(func=_cmd_segment_train)
+
+    sp = sub.add_parser("segment-export", help="Export the segmenter to ONNX (fp32).")
+    sp.set_defaults(func=_cmd_segment_export)
+
+    sp = sub.add_parser(
+        "segment-validate",
+        help="Gate: boundary count + end-to-end split→recognize on rendered words.",
+    )
+    sp.add_argument("--trials", type=int, default=8, help="Trials per test word.")
+    sp.set_defaults(func=_cmd_segment_validate)
 
     return p
 

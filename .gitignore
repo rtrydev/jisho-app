@@ -68,11 +68,13 @@ next-env.d.ts
 # alone — they're independently rebuild-able via the Python data pipeline
 # (or tools/handwriting_ocr for the recognizer) and refresh rarely.
 #   * kanji-recognizer.onnx (2.9 MB)  — handwriting INT8 model, ~1h GPU rebuild
+#   * kanji-segmenter.onnx  (1.6 MB)  — char-boundary model, ~10min CPU rebuild
 #   * kanji-classes.json    (33 KB)   — paired class index for the model
 #   * kanji.json.gz         (220 KB)  — Stage 7: per-kanji metadata
 #   * radkfile.json.gz      (68 KB)   — Stage 7: radical → kanji bitsets
 /public/data/*
 !/public/data/kanji-recognizer.onnx
+!/public/data/kanji-segmenter.onnx
 !/public/data/kanji-classes.json
 !/public/data/kanji.json.gz
 !/public/data/radkfile.json.gz
