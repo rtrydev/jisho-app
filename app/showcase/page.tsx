@@ -38,6 +38,7 @@ import {
   type TabItem,
 } from "../components";
 import { cards, history, sentence, english, source, tokens, favoriteIds } from "../lib/demoData";
+import { useSplashRemoval } from "../lib/splash";
 
 type Theme = "light" | "dark";
 type Accent = "seal" | "indigo" | "sumi";
@@ -66,6 +67,11 @@ export default function ShowcasePage() {
   const [active, setActive] = useState<"read" | "history" | "favorites" | "settings">("read");
   const [favs, setFavs] = useState<Set<string>>(() => new Set(favoriteIds));
   const [activeChip, setActiveChip] = useState<string | null>("v-sensei");
+
+  // The splash overlay (app/layout.tsx) paints on every route, but this
+  // reference page never mounts EngineProvider to clear it — there's no engine
+  // to load here, so dismiss it on mount.
+  useSplashRemoval(true);
 
   // Sync data-attrs on <html> so token cascade reaches everything (including portals).
   useEffect(() => {

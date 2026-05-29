@@ -23,6 +23,7 @@ import {
   type WordCombinationSlot,
   type WordSuggestion,
 } from "../lib/analyzer";
+import { useSplashRemoval } from "../lib/splash";
 
 export type EngineContextValue = {
   status: AnalysisStatus;
@@ -82,6 +83,11 @@ export function EngineProvider({
   );
   const [result, setResult] = useState<AnalysisResult>(EMPTY_RESULT);
   const pendingText = useRef<string | null>(null);
+
+  // Tear down the cold-load splash (app/layout.tsx) once resources have
+  // resolved or errored — anything past the initial "loading" status. Injected
+  // resources start "idle", so the showcase/test paths clear it immediately.
+  useSplashRemoval(status.kind !== "loading");
 
   // Kick off the async load when no resources were injected. Injected
   // resources are read once from the initial state — they aren't expected to
