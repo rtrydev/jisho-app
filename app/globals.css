@@ -986,6 +986,12 @@ body {
   padding: 5px 12px; border-radius: 2px;
   cursor: pointer; letter-spacing: 0.01em;
   transition: all .12s;
+  /* The control is a tap target, not text — a quick or repeated tap on mobile
+     otherwise selects the label and pops the iOS selection/callout UI. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .seg-btn:hover { color: var(--ink); }
 .seg-on { background: var(--paper); color: var(--ink); box-shadow: var(--sh-1), inset 0 0 0 .5px var(--line); }
