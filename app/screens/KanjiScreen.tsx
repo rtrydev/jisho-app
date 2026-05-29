@@ -151,15 +151,21 @@ export function KanjiScreen({
     });
   }, [mode, drawCandidateGroups, selected]);
 
-  // Auto-select the top candidate the first time a new candidate list comes
-  // in for a mode, but preserve the user's explicit pick if it's still in
-  // the list. In Draw mode that means refining one character (e.g. adding a
-  // stroke to the second kanji) won't yank the selection back to the first
-  // group's top-1 — only candidates falling out of top-K do.
+  // Auto-select the top candidate when a new candidate list comes in for a
+  // mode. Type/Radicals preserve an explicit user pick ("if you type a kanji
+  // directly, you didn't have to also click it"). Draw mode refines with each
+  // stroke, so every candidate change is treated as a brand-new input and we
+  // re-snap to the top recognizer guess — the selected candidate in a segment
+  // must always be its highest-confidence one. The user can still click
+  // another tile to inspect it until the next stroke changes the candidates.
   useEffect(() => {
     if (!candidates.length) return;
+    if (mode === "draw") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelected(candidates[0]);
+      return;
+    }
     if (selected && candidates.includes(selected)) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected(candidates[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates.join("|"), mode]);
