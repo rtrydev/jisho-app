@@ -24,7 +24,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .augment import augment
-from .config import SYNTH_POLICY
+from .config import SYNTH_POLICY, SynthesisPolicy
 from .fonts import discover_japanese_fonts, rasterize_with_font
 from .kanjivg import has_strokes, rasterize_with_perturbation
 
@@ -48,6 +48,10 @@ class SyntheticKanjiDataset(Dataset):
     deterministic : bool
         When True, the seed for sample ``i`` does not depend on
         ``epoch_seed_offset``. Use for the validation split.
+    policy : SynthesisPolicy
+        The synthesis distribution. Train and val pass *different* policies
+        (heavier vs. deployment-proxy) — every renderer/augmentation knob is
+        read from here, not from the module global.
     """
 
     def __init__(
@@ -57,22 +61,26 @@ class SyntheticKanjiDataset(Dataset):
         base_seed: int,
         *,
         deterministic: bool = False,
+        policy: SynthesisPolicy = SYNTH_POLICY,
     ) -> None:
         self.classes = classes
         self.samples_per_class = samples_per_class
         self.base_seed = base_seed
         self.deterministic = deterministic
+        self._policy = policy
         self._epoch = 0
 
         fonts = discover_japanese_fonts()
-        self._fonts: list[Path] = list(fonts)
+        # Each entry is (path, face_index). face_index distinguishes the
+        # sub-faces packed inside .ttc files; it's 0 for plain TTF/OTF.
+        self._fonts: list[tuple[Path, int]] = list(fonts)
         if not self._fonts:
             # No fonts discovered — KanjiVG-only synthesis is still valid
             # though the print/handwriting variety drops. Caller should see
             # this in the logs.
             self._effective_p_kanjivg = 1.0
         else:
-            self._effective_p_kanjivg = SYNTH_POLICY.p_kanjivg
+            self._effective_p_kanjivg = policy.p_kanjivg
 
         # Precompute which classes have KanjiVG coverage; fall back to font
         # for the rest. Cheap (one cache hit per class, sub-second total).
@@ -110,25 +118,33 @@ class SyntheticKanjiDataset(Dataset):
         # for this character, otherwise honor the configured mix.
         use_kvg = self._has_kvg[class_idx] and rng.random() < self._effective_p_kanjivg
 
+        pol = self._policy
         arr: np.ndarray | None = None
         if use_kvg:
-            arr = rasterize_with_perturbation(ch, SYNTH_POLICY.image_size, rng=rng)
+            arr = rasterize_with_perturbation(
+                ch, pol.image_size, rng=rng, policy=pol
+            )
         if arr is None:
             if not self._fonts:
                 # Defensive: KanjiVG should have covered this; if not, emit
                 # a blank rather than crash. Tests can catch this with the
                 # zero-image assertion in eval.
                 arr = np.zeros(
-                    (SYNTH_POLICY.image_size, SYNTH_POLICY.image_size),
+                    (pol.image_size, pol.image_size),
                     dtype=np.float32,
                 )
             else:
-                font_path = self._fonts[rng.randrange(len(self._fonts))]
+                font_path, face_index = self._fonts[rng.randrange(len(self._fonts))]
                 arr = rasterize_with_font(
-                    ch, font_path, SYNTH_POLICY.image_size, rng=rng
+                    ch,
+                    font_path,
+                    pol.image_size,
+                    index=face_index,
+                    rng=rng,
+                    policy=pol,
                 )
 
-        arr = augment(arr, rng)
+        arr = augment(arr, rng, pol)
 
         # (1, H, W) float32 — matches the model's expected input shape.
         tensor = torch.from_numpy(arr).unsqueeze(0).contiguous()

@@ -7,10 +7,13 @@ Available:
 
   classes        Mine the kanji class set from JMdict.
   fetch-kanjivg  Download + extract the KanjiVG SVG archive.
+  fetch-fonts    Download the curated OFL font pack into the work dir.
   fonts          Discover and report installed Japanese fonts.
                  (use ``--list`` to print them)
   train          Run the training loop.
                  (``--epochs N`` and ``--batch-size N`` override config)
+  eval           Head-to-head: a candidate checkpoint vs the deployed
+                 baseline on the deployment-proxy distribution.
   export         Export the best checkpoint to ONNX + quantize.
 """
 
@@ -32,6 +35,15 @@ def _cmd_fetch_kanjivg(args: argparse.Namespace) -> int:
 
     kanjivg.fetch(force=args.force)
     return 0
+
+
+def _cmd_fetch_fonts(args: argparse.Namespace) -> int:
+    from . import font_pack
+
+    counts = font_pack.fetch_fonts(force=args.force)
+    # Treat a zero-font outcome as a failure so CI catches it; otherwise
+    # success — having some cached but no new downloads is still fine.
+    return 0 if (counts["downloaded"] + counts["cached"]) > 0 else 1
 
 
 def _cmd_fonts(args: argparse.Namespace) -> int:
@@ -57,8 +69,25 @@ def _cmd_train(args: argparse.Namespace) -> int:
         arch=args.arch,
         num_workers=args.num_workers,
         patience=args.patience,
+        val_every=args.val_every,
     )
     return 0
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    from . import eval as eval_mod
+
+    return eval_mod.run(
+        arch=args.arch,
+        candidate=args.candidate,
+        candidate_image_size=args.candidate_image_size,
+        baseline=args.baseline,
+        baseline_arch=args.baseline_arch,
+        baseline_image_size=args.baseline_image_size,
+        condition=args.condition,
+        samples_per_class=args.samples_per_class,
+        num_workers=args.num_workers,
+    )
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -82,6 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--force", action="store_true", help="Re-download even if cached.")
     sp.set_defaults(func=_cmd_fetch_kanjivg)
 
+    sp = sub.add_parser(
+        "fetch-fonts", help="Download the curated OFL Japanese font pack."
+    )
+    sp.add_argument("--force", action="store_true", help="Re-download even if cached.")
+    sp.set_defaults(func=_cmd_fetch_fonts)
+
     sp = sub.add_parser("fonts", help="Inspect discovered Japanese fonts.")
     sp.add_argument("--list", action="store_true", help="Print each font.")
     sp.set_defaults(func=_cmd_fonts)
@@ -104,7 +139,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument(
         "--arch",
         type=str,
-        default="mobilenet_v3_small",
+        default="simple_resnet",
         choices=["mobilenet_v3_small", "mobilenet_v3_small_s1", "simple_resnet"],
         help="Model architecture to train.",
     )
@@ -130,17 +165,90 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sp.add_argument(
+        "--val-every",
+        type=int,
+        default=None,
+        help=(
+            "Run the validation pass every N epochs. Default 1 (every epoch). "
+            "Epoch 0 (baseline) and the final epoch are always validated, the "
+            "rest by stride N. Skipping val on most epochs is a meaningful "
+            "speedup on long runs since the val pass is a full forward sweep."
+        ),
+    )
+    sp.add_argument(
         "--no-resume",
         action="store_true",
         help="Ignore existing last.pt checkpoint and train from scratch.",
     )
     sp.set_defaults(func=_cmd_train)
 
+    sp = sub.add_parser(
+        "eval",
+        help="Head-to-head: candidate checkpoint vs deployed baseline.",
+    )
+    sp.add_argument(
+        "--arch",
+        type=str,
+        default="simple_resnet",
+        choices=["mobilenet_v3_small", "mobilenet_v3_small_s1", "simple_resnet"],
+        help="Candidate architecture (selects the default checkpoint path).",
+    )
+    sp.add_argument(
+        "--candidate",
+        type=str,
+        default=None,
+        help="Path to the candidate checkpoint (default: best.pt for --arch).",
+    )
+    sp.add_argument(
+        "--candidate-image-size",
+        type=int,
+        default=None,
+        help="Override candidate input size (default: read from the checkpoint).",
+    )
+    sp.add_argument(
+        "--baseline",
+        type=str,
+        default=None,
+        help="Path to the baseline checkpoint (default: checkpoints/deployed_baseline.pt).",
+    )
+    sp.add_argument(
+        "--baseline-arch",
+        type=str,
+        default=None,
+        choices=["mobilenet_v3_small", "mobilenet_v3_small_s1", "simple_resnet"],
+        help="Baseline architecture (default: from checkpoint / autodetected).",
+    )
+    sp.add_argument(
+        "--baseline-image-size",
+        type=int,
+        default=None,
+        help="Override baseline input size (default: from checkpoint, else 64).",
+    )
+    sp.add_argument(
+        "--condition",
+        type=str,
+        default="deployment",
+        help="Which distribution to score on: deployment (default) | clean | train | all.",
+    )
+    sp.add_argument(
+        "--samples-per-class",
+        type=int,
+        default=6,
+        help="Samples per class per condition (default 6).",
+    )
+    sp.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="DataLoader workers for synthesis (default 4).",
+    )
+    sp.set_defaults(func=_cmd_eval)
+
     sp = sub.add_parser("export", help="Export the best checkpoint to ONNX.")
     sp.add_argument(
         "--arch",
         type=str,
-        default="mobilenet_v3_small",
+        default="simple_resnet",
         choices=["mobilenet_v3_small", "mobilenet_v3_small_s1", "simple_resnet"],
         help="Which trained architecture's best checkpoint to export.",
     )

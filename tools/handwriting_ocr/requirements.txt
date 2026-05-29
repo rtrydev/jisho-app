@@ -13,6 +13,10 @@ torchvision>=0.21
 Pillow>=11.0
 numpy>=2.1
 svgpathtools>=1.6
+# scipy.ndimage.gaussian_filter is used by elastic deform and ink_grain.
+# Pillow 12.x dropped GaussianBlur on float images, so the float-field
+# blurs route through scipy instead.
+scipy>=1.13
 
 # ONNX export + post-training quantization.
 onnx>=1.17

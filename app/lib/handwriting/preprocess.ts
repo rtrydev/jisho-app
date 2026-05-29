@@ -1,16 +1,21 @@
-// Strokes → 64×64 grayscale Float32Array.
+// Strokes → 96×96 grayscale Float32Array.
 //
 // Mirrors the training-time normalization: auto-fit the ink bbox into the
 // model's input square with a small margin, render strokes with rounded
 // joins, then read pixels as ink-on-zero (matching the dataset, where
 // background = 0 and ink = 1).
+//
+// IMPORTANT: IMAGE_SIZE and STROKE_WIDTH must stay in sync with the Python
+// training config (tools/handwriting_ocr/config.py): IMAGE_SIZE ==
+// SynthesisPolicy.image_size, and STROKE_WIDTH tracks the VAL_POLICY stroke
+// thickness midpoint — VAL_POLICY is the deployment proxy the model is
+// selected on, so inference should render strokes at that weight.
 
 import type { Stroke } from "./types";
 
-const IMAGE_SIZE = 64;
+const IMAGE_SIZE = 96;
 // Render at 4× resolution then downsample. Browser canvas anti-aliasing is
-// adequate at 64×64 but supersampling is a cheap fidelity bump — comparable
-// to the 2× scale `kanjivg.rasterize_with_perturbation` uses.
+// adequate at 96×96 but supersampling is a cheap fidelity bump.
 const RENDER_SCALE = 4;
 const RENDER_SIZE = IMAGE_SIZE * RENDER_SCALE;
 
@@ -18,9 +23,10 @@ const RENDER_SIZE = IMAGE_SIZE * RENDER_SCALE;
  *  Matches the training augmentation's mean (`0.10 + uniform(0, 0.04)`). */
 const MARGIN_FRAC = 0.12;
 
-/** Stroke width in *output* pixels (before render-scale). 3px → 12px on the
- *  supersampled canvas. Matches the training thickness midpoint. */
-const STROKE_WIDTH = 3;
+/** Stroke width in *output* pixels (before render-scale). 4.5px → 18px on the
+ *  supersampled canvas. Matches the VAL_POLICY stroke-thickness midpoint at
+ *  96px (3.5–5.5 → 4.5) so train and inference render strokes at one weight. */
+const STROKE_WIDTH = 4.5;
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 

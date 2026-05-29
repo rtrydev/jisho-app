@@ -16,7 +16,7 @@ import random
 import numpy as np
 from PIL import Image, ImageFilter
 
-from .config import SYNTH_POLICY
+from .config import SYNTH_POLICY, SynthesisPolicy
 
 
 def _to_pil(arr: np.ndarray) -> Image.Image:
@@ -30,8 +30,8 @@ def _from_pil(img: Image.Image) -> np.ndarray:
 # ---------- affine ------------------------------------------------------ #
 
 
-def random_affine(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def random_affine(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     h, w = arr.shape
     angle = math.radians(rng.uniform(-pol.affine_rotate_deg, pol.affine_rotate_deg))
     sx = rng.uniform(pol.affine_scale_min, pol.affine_scale_max)
@@ -87,8 +87,8 @@ def _gaussian_blur_field(field: np.ndarray, sigma: float) -> np.ndarray:
     return gaussian_filter(field, sigma=sigma, mode="reflect").astype(np.float32)
 
 
-def elastic_deform(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def elastic_deform(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     if pol.elastic_alpha <= 0:
         return arr
     h, w = arr.shape
@@ -134,8 +134,8 @@ def elastic_deform(arr: np.ndarray, rng: random.Random) -> np.ndarray:
 # ---------- morphology (dilate / erode = thicker / thinner strokes) ----- #
 
 
-def random_morphology(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def random_morphology(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     r = rng.random()
     if r < pol.p_dilate:
         img = _to_pil(arr).filter(ImageFilter.MaxFilter(3))
@@ -149,8 +149,8 @@ def random_morphology(arr: np.ndarray, rng: random.Random) -> np.ndarray:
 # ---------- noise / dropout / blur -------------------------------------- #
 
 
-def random_pixel_dropout(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def random_pixel_dropout(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     if rng.random() >= pol.p_pixel_dropout:
         return arr
     seed = rng.randrange(2**32)
@@ -162,8 +162,8 @@ def random_pixel_dropout(arr: np.ndarray, rng: random.Random) -> np.ndarray:
     return out
 
 
-def gaussian_noise(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def gaussian_noise(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     if pol.gaussian_noise_std <= 0:
         return arr
     seed = rng.randrange(2**32)
@@ -172,8 +172,8 @@ def gaussian_noise(arr: np.ndarray, rng: random.Random) -> np.ndarray:
     return np.clip(arr + n, 0.0, 1.0)
 
 
-def random_blur(arr: np.ndarray, rng: random.Random) -> np.ndarray:
-    pol = SYNTH_POLICY
+def random_blur(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    pol = policy
     if rng.random() >= pol.p_blur:
         return arr
     radius = rng.uniform(0.2, pol.blur_radius_max)
@@ -181,26 +181,102 @@ def random_blur(arr: np.ndarray, rng: random.Random) -> np.ndarray:
     return _from_pil(img)
 
 
+# ---------- ink-style augmentation -------------------------------------- #
+
+
+def ink_bleed(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Spread ink outward as if pen ink soaked into paper.
+
+    Dilate the ink mask by one pixel then Gaussian-blur it. The
+    re-scaling pulls the bled mask back toward full opacity at the core
+    of strokes so the result is "fatter and softer-edged", not "uniformly
+    grey". Combined with ``np.maximum`` against the original, strokes
+    can only gain ink, never lose it.
+    """
+    pol = policy
+    if rng.random() >= pol.p_ink_bleed:
+        return arr
+    radius = rng.uniform(0.4, pol.ink_bleed_max_radius)
+    img = _to_pil(arr).filter(ImageFilter.MaxFilter(3))
+    img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+    bled = np.clip(_from_pil(img) * 1.4, 0.0, 1.0)
+    return np.maximum(arr, bled).astype(np.float32)
+
+
+def ink_grain(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Modulate ink intensity with low-frequency multiplicative noise.
+
+    Real pen / brush ink has along-stroke intensity variation: thinner
+    spots, darker pooled spots. Without this, every synthetic stroke is
+    a uniform-opacity slab and the model overfits to "ink pixel = 1.0".
+    """
+    pol = policy
+    if rng.random() >= pol.p_ink_grain:
+        return arr
+    from scipy.ndimage import gaussian_filter
+
+    h, w = arr.shape
+    seed = rng.randrange(2**32)
+    rs = np.random.default_rng(seed)
+    noise = gaussian_filter(
+        rs.standard_normal((h, w), dtype=np.float32),
+        sigma=pol.ink_grain_sigma,
+    ).astype(np.float32)
+    n_std = float(noise.std())
+    if n_std < 1e-6:
+        return arr
+    # Normalize so roughly ±1, then scale into the configured range.
+    noise = noise / (n_std * 2.0)
+    modulated = arr * (1.0 + pol.ink_grain_strength * noise)
+    return np.clip(modulated, 0.0, 1.0).astype(np.float32)
+
+
+def random_cutout(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Erase a small rectangular region.
+
+    Cheap regulariser — forces the classifier to use redundant kanji
+    evidence across the glyph rather than memorising one quadrant. Runs
+    last in the pipeline so the cut survives every other op.
+    """
+    pol = policy
+    if rng.random() >= pol.p_cutout:
+        return arr
+    h, w = arr.shape
+    cut_h = rng.randint(max(2, h // 10), max(3, int(h * pol.cutout_frac_max)))
+    cut_w = rng.randint(max(2, w // 10), max(3, int(w * pol.cutout_frac_max)))
+    y0 = rng.randint(0, h - cut_h)
+    x0 = rng.randint(0, w - cut_w)
+    out = arr.copy()
+    out[y0:y0 + cut_h, x0:x0 + cut_w] = 0.0
+    return out
+
+
 # ---------- pipeline ---------------------------------------------------- #
 
 
-def augment(arr: np.ndarray, rng: random.Random) -> np.ndarray:
+def augment(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     """Apply the full augmentation pipeline. Order matters:
 
     1. Affine (move pixels around in big rigid ways)
     2. Elastic (smooth nonlinear warp on top)
     3. Morphology (thicken/thin strokes)
-    4. Pixel dropout (introduce ink breaks)
-    5. Gaussian noise (sensor/scan noise)
-    6. Blur (final softening)
+    4. Ink bleed (spread ink as if wet on paper)
+    5. Ink grain (along-stroke intensity variation)
+    6. Pixel dropout (introduce ink breaks)
+    7. Gaussian noise (sensor/scan noise)
+    8. Blur (final softening)
+    9. Cutout (occlude a small region)
 
     All steps short-circuit when their probabilities don't fire, so a
     "no-op" pass is cheap.
     """
-    arr = random_affine(arr, rng)
-    arr = elastic_deform(arr, rng)
-    arr = random_morphology(arr, rng)
-    arr = random_pixel_dropout(arr, rng)
-    arr = gaussian_noise(arr, rng)
-    arr = random_blur(arr, rng)
+    arr = random_affine(arr, rng, policy)
+    arr = elastic_deform(arr, rng, policy)
+    arr = random_morphology(arr, rng, policy)
+    arr = ink_bleed(arr, rng, policy)
+    arr = ink_grain(arr, rng, policy)
+    arr = random_pixel_dropout(arr, rng, policy)
+    arr = gaussian_noise(arr, rng, policy)
+    arr = random_blur(arr, rng, policy)
+    arr = random_cutout(arr, rng, policy)
     return arr

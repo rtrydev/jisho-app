@@ -16,6 +16,7 @@ Background = 0, ink = 1, float32 — matching ``fonts.rasterize_with_font``.
 from __future__ import annotations
 
 import io
+import math
 import random
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -32,6 +33,7 @@ from .config import (
     KANJIVG_DIR,
     KANJIVG_URL,
     SYNTH_POLICY,
+    SynthesisPolicy,
     WORK_DIR,
 )
 
@@ -191,6 +193,7 @@ def rasterize_with_perturbation(
     image_size: int,
     *,
     rng: random.Random | None = None,
+    policy: SynthesisPolicy = SYNTH_POLICY,
 ) -> np.ndarray | None:
     """Render ``ch`` from KanjiVG strokes with per-stroke perturbation.
 
@@ -202,18 +205,35 @@ def rasterize_with_perturbation(
     if not base:
         return None
 
-    pol = SYNTH_POLICY
+    pol = policy
 
     # --- Perturb each stroke's sampled points -------------------------- #
+    # Two independent perturbations per stroke, both in KanjiVG viewport
+    # units (~109), applied before the strokes are fit into the image:
+    #   1. A rigid wobble (shift + small rotation about the stroke centroid)
+    #      so component placement varies between samples — the dominant way
+    #      real handwriting departs from the single canonical skeleton.
+    #   2. Per-control-point Gaussian jitter for within-stroke shakiness.
     strokes: list[list[tuple[float, float]]] = []
     for stroke_pts in base:
         if rng.random() < pol.p_drop_stroke:
             continue
+        cx = sum(p[0] for p in stroke_pts) / len(stroke_pts)
+        cy = sum(p[1] for p in stroke_pts) / len(stroke_pts)
+        ang = math.radians(
+            rng.uniform(-pol.stroke_local_rotate_deg, pol.stroke_local_rotate_deg)
+        )
+        ca, sa = math.cos(ang), math.sin(ang)
+        sdx = rng.uniform(-pol.stroke_local_shift_px, pol.stroke_local_shift_px)
+        sdy = rng.uniform(-pol.stroke_local_shift_px, pol.stroke_local_shift_px)
         jitter = pol.stroke_jitter_px
-        strokes.append([
-            (x + rng.gauss(0.0, jitter), y + rng.gauss(0.0, jitter))
-            for x, y in stroke_pts
-        ])
+        perturbed: list[tuple[float, float]] = []
+        for x, y in stroke_pts:
+            rx, ry = x - cx, y - cy
+            nx = cx + rx * ca - ry * sa + sdx + rng.gauss(0.0, jitter)
+            ny = cy + rx * sa + ry * ca + sdy + rng.gauss(0.0, jitter)
+            perturbed.append((nx, ny))
+        strokes.append(perturbed)
 
     # --- Possibly add a short extraneous stroke ------------------------ #
     if rng.random() < pol.p_extra_stroke:

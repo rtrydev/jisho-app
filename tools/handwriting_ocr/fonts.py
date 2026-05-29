@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from .config import BUNDLED_FONTS_DIR, SYNTH_POLICY, SynthesisPolicy
+
 
 # Probe characters used to decide whether a font has Japanese kanji
 # coverage. Picked to span the common-to-rare spectrum cheaply: 日 is
@@ -28,6 +30,34 @@ from PIL import Image, ImageDraw, ImageFont
 # basic Jōyō subset.
 _PROBES_CORE = ("日", "本", "語")
 _PROBES_HARD = ("鬱", "嬲")
+
+
+# Files known to ship Korean / Chinese (Traditional or Simplified) glyph
+# shapes. They have CJK codepoint coverage but render shared characters
+# with the wrong regional form (e.g. 直 lacks the inner dot in TC/SC;
+# 骨's upper-right component differs across regions). Training on these
+# teaches the model the wrong shape for the JP variant. Matched
+# case-insensitively against the file stem.
+_NON_JP_FONT_PREFIXES: tuple[str, ...] = (
+    "malgun",     # Malgun Gothic (Korean)
+    "batang",     # Batang (Korean)
+    "gulim",      # Gulim (Korean)
+    "gungsuh",    # Gungsuh (Korean)
+    "msjh",       # Microsoft JhengHei (Traditional Chinese)
+    "msyh",       # Microsoft YaHei (Simplified Chinese)
+    "simsun",     # SimSun (Simplified Chinese)
+    "simhei",     # SimHei (Simplified Chinese)
+    "simkai",     # SimKai (Simplified Chinese)
+    "simfang",    # SimFang (Simplified Chinese)
+    "nsimsun",    # NSimSun (Simplified Chinese)
+    "mingliu",    # MingLiU (Traditional Chinese)
+    "kaiu",       # DFKai-SB (Traditional Chinese)
+)
+
+
+def _is_non_jp_filename(path: Path) -> bool:
+    stem = path.stem.lower()
+    return any(stem.startswith(p) for p in _NON_JP_FONT_PREFIXES)
 
 
 def _system_font_dirs() -> list[Path]:
@@ -55,26 +85,61 @@ def _system_font_dirs() -> list[Path]:
     return [c for c in candidates if c.exists()]
 
 
-def _iter_font_files() -> list[Path]:
-    out: list[Path] = []
-    for root in _system_font_dirs():
+def _enumerate_faces(path: Path, *, max_faces: int = 32) -> int:
+    """Number of usable faces inside a font file. 1 for TTF/OTF.
+
+    TTC ("collection") files pack several faces under one filename — Yu
+    Mincho on Windows is one TTC with Light/Regular/Demibold faces, for
+    example. PIL doesn't expose the face count directly, so probe by
+    opening successive indices until one fails.
+    """
+    if path.suffix.lower() != ".ttc":
+        return 1
+    n = 0
+    while n < max_faces:
+        try:
+            ImageFont.truetype(str(path), size=12, index=n)
+        except (OSError, ValueError, IndexError):
+            break
+        n += 1
+    return max(1, n)
+
+
+def _iter_font_faces() -> list[tuple[Path, int]]:
+    """All candidate (path, face-index) pairs from bundled + system dirs.
+
+    Bundled fonts come first so they win the dedup pass below — if both
+    the system and the bundled pack ship the same filename, prefer the
+    bundled copy for reproducibility.
+    """
+    out: list[tuple[Path, int]] = []
+    roots: list[Path] = []
+    if BUNDLED_FONTS_DIR.exists():
+        roots.append(BUNDLED_FONTS_DIR)
+    roots.extend(_system_font_dirs())
+    for root in roots:
         for p in root.rglob("*"):
             if not p.is_file():
                 continue
+            if _is_non_jp_filename(p):
+                continue
             ext = p.suffix.lower()
-            if ext in (".ttf", ".otf", ".ttc"):
-                out.append(p)
+            if ext in (".ttf", ".otf"):
+                out.append((p, 0))
+            elif ext == ".ttc":
+                for i in range(_enumerate_faces(p)):
+                    out.append((p, i))
     return out
 
 
-def _font_has_japanese(path: Path) -> bool:
-    """True iff the font can render the core probes at a sensible size.
+def _font_has_japanese(path: Path, index: int = 0) -> bool:
+    """True iff the font face can render the core probes at a sensible size.
 
     Doesn't render — uses ``getmask().getbbox()`` which returns None when
     the codepoint isn't in the font's cmap.
     """
     try:
-        font = ImageFont.truetype(str(path), size=48)
+        font = ImageFont.truetype(str(path), size=48, index=index)
     except Exception:
         return False
     for probe in _PROBES_CORE:
@@ -100,7 +165,12 @@ def _font_has_japanese(path: Path) -> bool:
 _DIVERSITY_PROBES = ("?", "日", "本", "語", "学", "車", "東", "京", "屋", "鬱")
 
 
-def _font_diversity_ok(path: Path, *, min_mean_pairwise_l1: float = 0.08) -> bool:
+def _font_diversity_ok(
+    path: Path,
+    index: int = 0,
+    *,
+    min_mean_pairwise_l1: float = 0.08,
+) -> bool:
     """Reject fonts that render distinct kanji as visually identical bitmaps.
 
     Tofu (missing-glyph) renderings collapse to a fixed outline regardless
@@ -110,7 +180,7 @@ def _font_diversity_ok(path: Path, *, min_mean_pairwise_l1: float = 0.08) -> boo
     letting legitimately-low-diversity stylistic fonts through.
     """
     try:
-        font = ImageFont.truetype(str(path), size=48)
+        font = ImageFont.truetype(str(path), size=48, index=index)
     except Exception:
         return False
     bitmaps: list[np.ndarray] = []
@@ -147,11 +217,12 @@ def _font_diversity_ok(path: Path, *, min_mean_pairwise_l1: float = 0.08) -> boo
 
 
 @lru_cache(maxsize=1)
-def discover_japanese_fonts() -> tuple[Path, ...]:
-    """All installed fonts that can render Japanese kanji.
+def discover_japanese_fonts() -> tuple[tuple[Path, int], ...]:
+    """All installed font faces that can render Japanese kanji.
 
-    Cached for the process lifetime — font installation rarely changes
-    during a training run, and the probe scan can be slow.
+    Each entry is ``(path, face_index)`` — face_index is 0 for plain
+    TTF/OTF and 0..N-1 for TTC sub-faces. Cached for the process
+    lifetime; the probe scan can be slow.
 
     Two-stage filter:
       1. ``_font_has_japanese`` — coarse cmap probe on 日本語. Catches fonts
@@ -161,56 +232,54 @@ def discover_japanese_fonts() -> tuple[Path, ...]:
          The 56% top-1 baseline was bottlenecked by these — the model
          learned to predict `文`/`口` for any rectangular blob.
     """
-    out: list[Path] = []
-    seen: set[str] = set()
-    for path in _iter_font_files():
-        if path.name in seen:
+    out: list[tuple[Path, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for path, idx in _iter_font_faces():
+        key = (path.name, idx)
+        if key in seen:
             continue
-        if not _font_has_japanese(path):
+        if not _font_has_japanese(path, idx):
             continue
-        if not _font_diversity_ok(path):
+        if not _font_diversity_ok(path, idx):
             continue
-        out.append(path)
-        seen.add(path.name)
+        out.append((path, idx))
+        seen.add(key)
     return tuple(out)
 
 
 def list_fonts(*, log_fn=print) -> int:
-    """CLI helper: print discovered Japanese fonts and report whether each
-    handles the hard probes too."""
+    """CLI helper: print discovered Japanese font faces and report whether
+    each handles the hard probes too."""
     fonts = discover_japanese_fonts()
     if not fonts:
         log_fn("No Japanese fonts found. Install some — see README.md.")
         return 0
-    log_fn(f"Discovered {len(fonts)} Japanese font(s):")
-    for path in fonts:
-        font = ImageFont.truetype(str(path), size=48)
+    log_fn(f"Discovered {len(fonts)} Japanese font face(s):")
+    for path, idx in fonts:
+        font = ImageFont.truetype(str(path), size=48, index=idx)
         hard_ok = all(
             (font.getmask(p).getbbox() or (0, 0, 0, 0))[2] >= 12
             for p in _PROBES_HARD
         )
         flag = "full" if hard_ok else "basic"
-        log_fn(f"  [{flag:>5}] {path.name}")
+        face = f"#{idx}" if path.suffix.lower() == ".ttc" else "   "
+        log_fn(f"  [{flag:>5}] {face} {path.name}")
     return len(fonts)
 
 
 # ---------- rasterization ------------------------------------------------ #
 
 
-def _load_font_cached(path: str, size: int) -> ImageFont.FreeTypeFont:
+_FONT_CACHE: dict[tuple[str, int, int], ImageFont.FreeTypeFont] = {}
+
+
+def _get_font(path: Path, size: int, index: int = 0) -> ImageFont.FreeTypeFont:
     # Manual cache — ``ImageFont.truetype`` is cheap but called millions of
-    # times in a long training run, so memoizing by (path, size) helps.
-    return ImageFont.truetype(path, size=size)
-
-
-_FONT_CACHE: dict[tuple[str, int], ImageFont.FreeTypeFont] = {}
-
-
-def _get_font(path: Path, size: int) -> ImageFont.FreeTypeFont:
-    key = (str(path), size)
+    # times in a long training run, so memoizing by (path, size, index) helps.
+    key = (str(path), size, index)
     cached = _FONT_CACHE.get(key)
     if cached is None:
-        cached = _load_font_cached(*key)
+        cached = ImageFont.truetype(str(path), size=size, index=index)
         _FONT_CACHE[key] = cached
     return cached
 
@@ -220,24 +289,45 @@ def rasterize_with_font(
     font_path: Path,
     image_size: int,
     *,
+    index: int = 0,
     rng: random.Random | None = None,
+    policy: SynthesisPolicy = SYNTH_POLICY,
 ) -> np.ndarray:
-    """Render ``ch`` with the given font onto an ``image_size`` square.
+    """Render ``ch`` with the given font face onto an ``image_size`` square.
 
     Returns a float32 array in [0, 1] with ink=1, background=0. The glyph
     is auto-cropped to its ink bounding box, then centered with a small
     randomized margin so the model doesn't learn an exact-pixel position.
+
+    Per-render randomness:
+
+    * ``stroke_width`` 0..``faux_bold_max`` adds extra pen weight, so one
+      Regular face yields (faux_bold_max + 1) weight variants for free.
     """
     rng = rng or random
     # Render on a generous canvas first so we have room for the full glyph
     # including descenders/diacritics.
     canvas_size = image_size * 4
     glyph_target = int(image_size * 3.2)
-    font = _get_font(font_path, glyph_target)
+    font = _get_font(font_path, glyph_target, index)
 
     img = Image.new("L", (canvas_size, canvas_size), color=0)
     draw = ImageDraw.Draw(img)
-    draw.text((canvas_size // 2, canvas_size // 2), ch, font=font, fill=255, anchor="mm")
+    # Faux-bold via outline stroke. Scaled to glyph_target so the absolute
+    # widening is proportional to the rendered glyph (1 "px" at 200-px
+    # target ≈ 0.5% widening). Without the scale, stroke_width=2 makes a
+    # 16-px render unreadable.
+    faux_bold_px = rng.randint(0, policy.faux_bold_max) if policy.faux_bold_max > 0 else 0
+    # Normalize the faux-bold widening to the final image size (was a
+    # hardcoded /64 — wrong once image_size != 64). glyph_target ≈ 3.2×
+    # image_size, so this keeps faux_bold_px ≈ extra weight in final px.
+    stroke_w = max(0, int(round(faux_bold_px * glyph_target / image_size)))
+    draw.text(
+        (canvas_size // 2, canvas_size // 2),
+        ch, font=font, fill=255, anchor="mm",
+        stroke_width=stroke_w,
+        stroke_fill=255,
+    )
 
     bbox = img.getbbox()
     if bbox is None:

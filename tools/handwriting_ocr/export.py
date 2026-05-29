@@ -1,8 +1,9 @@
 """ONNX export + int8 quantization.
 
 Loads the best PyTorch checkpoint, re-builds the model architecture, exports
-to ONNX with dynamic batch (fixed CHW = ``1×64×64``), and optionally runs
-post-training dynamic-range quantization to int8 for the shipped artifact.
+to ONNX with dynamic batch (fixed CHW = ``1×N×N`` where N is the checkpoint's
+trained ``image_size``), and optionally runs post-training dynamic-range
+quantization to int8 for the shipped artifact.
 
 The exported model pairs 1:1 with ``public/data/kanji-classes.json``: output
 index ``i`` corresponds to ``classes[i]``. Both files ship together.
@@ -25,14 +26,16 @@ from .config import (
 from .model import build_model
 
 
-def _load_best_model(arch: str = "mobilenet_v3_small") -> tuple[torch.nn.Module, list[str]]:
-    """Returns (model, classes-as-trained). The shipped class index is the
-    checkpoint's class list — that's the contract the model output indexes
-    into, regardless of what `kanji-classes.json` currently holds.
+def _load_best_model(arch: str = "simple_resnet") -> tuple[torch.nn.Module, list[str], int]:
+    """Returns (model, classes-as-trained, image_size). The shipped class
+    index is the checkpoint's class list — that's the contract the model
+    output indexes into, regardless of what `kanji-classes.json` currently
+    holds. ``image_size`` comes from the checkpoint so the ONNX is exported at
+    the resolution the weights were trained for.
 
     Mirrors ``train.train``'s per-arch checkpoint subdir convention: the
-    default arch's checkpoints live at ``CHECKPOINT_DIR/best.pt``; every
-    other arch lands under ``CHECKPOINT_DIR/<arch>/best.pt``.
+    ``mobilenet_v3_small`` checkpoints live at ``CHECKPOINT_DIR/best.pt``;
+    every other arch lands under ``CHECKPOINT_DIR/<arch>/best.pt``.
     """
     ckpt_dir = CHECKPOINT_DIR if arch == "mobilenet_v3_small" else CHECKPOINT_DIR / arch
     best = ckpt_dir / "best.pt"
@@ -45,15 +48,16 @@ def _load_best_model(arch: str = "mobilenet_v3_small") -> tuple[torch.nn.Module,
     ckpt_classes: list[str] = list(ckpt.get("classes", []))
     if not ckpt_classes:
         raise RuntimeError(f"{best} has no `classes` field — re-train.")
+    image_size = int(ckpt.get("image_size", SYNTH_POLICY.image_size))
     model = build_model(num_classes=len(ckpt_classes), arch=arch)  # type: ignore[arg-type]
     model.load_state_dict(ckpt["model_state"])
     model.eval()
-    return model, ckpt_classes
+    return model, ckpt_classes, image_size
 
 
-def _export_fp32(model: torch.nn.Module, *, log_fn=print) -> Path:
+def _export_fp32(model: torch.nn.Module, image_size: int, *, log_fn=print) -> Path:
     MODEL_FP32_OUT.parent.mkdir(parents=True, exist_ok=True)
-    dummy = torch.zeros(1, 1, SYNTH_POLICY.image_size, SYNTH_POLICY.image_size)
+    dummy = torch.zeros(1, 1, image_size, image_size)
     # `dynamo=False` requests the legacy TorchScript-based exporter. The new
     # TorchDynamo exporter (default in torch 2.12) emits a graph that
     # onnxruntime's quantizer chokes on with a shape-inference mismatch
@@ -72,7 +76,7 @@ def _export_fp32(model: torch.nn.Module, *, log_fn=print) -> Path:
         dynamo=False,
     )
     size_mb = MODEL_FP32_OUT.stat().st_size / (1024 * 1024)
-    log_fn(f"  exported fp32 ONNX: {size_mb:.2f} MB → {MODEL_FP32_OUT.name}")
+    log_fn(f"  exported fp32 ONNX: {size_mb:.2f} MB -> {MODEL_FP32_OUT.name}")
     return MODEL_FP32_OUT
 
 
@@ -99,9 +103,9 @@ def _convert_fp16(src: Path) -> Path:
     return MODEL_OUT
 
 
-def run(*, arch: str = "mobilenet_v3_small", log_fn=print) -> Path:
-    model, classes = _load_best_model(arch=arch)
-    log_fn(f"loaded best checkpoint; arch={arch}; {len(classes):,} classes")
+def run(*, arch: str = "simple_resnet", log_fn=print) -> Path:
+    model, classes, image_size = _load_best_model(arch=arch)
+    log_fn(f"loaded best checkpoint; arch={arch}; {len(classes):,} classes; image_size={image_size}")
     # Cross-check against the current on-disk class list as a guardrail —
     # warn (don't fail) when the checkpoint was trained on a different /
     # truncated subset (smoke runs use --limit-classes).
@@ -116,7 +120,7 @@ def run(*, arch: str = "mobilenet_v3_small", log_fn=print) -> Path:
             "the checkpoint's classes."
         )
 
-    fp32 = _export_fp32(model, log_fn=log_fn)
+    fp32 = _export_fp32(model, image_size, log_fn=log_fn)
 
     mode = EXPORT_POLICY.quantization
     if mode == "dynamic":
@@ -132,5 +136,5 @@ def run(*, arch: str = "mobilenet_v3_small", log_fn=print) -> Path:
         raise ValueError(f"unknown quantization mode: {mode!r}")
 
     size_mb = out.stat().st_size / (1024 * 1024)
-    log_fn(f"  shipped artifact ({mode}): {size_mb:.2f} MB → {out.name}")
+    log_fn(f"  shipped artifact ({mode}): {size_mb:.2f} MB -> {out.name}")
     return out
