@@ -142,6 +142,17 @@ export function loadRecognizer(
     ort.env.wasm.wasmPaths = WASM_PATHS;
     // Threading wants COOP/COEP headers we don't set; force single-thread.
     ort.env.wasm.numThreads = 1;
+    // Run the WASM backend in a worker thread. A recognize pass fires several
+    // `session.run` forward passes (segmentation + confidence re-splits); on
+    // the main thread that blocks pointer events right as the user starts the
+    // next stroke, so the canvas drops the `pointerdown` ("stroke doesn't start
+    // on touch"). Proxying inference to ORT's own worker (it bundles
+    // `ort-wasm-proxy-worker` and creates it itself — nothing for us to ship or
+    // wire up) keeps the main thread free. Orthogonal to numThreads, so this
+    // stays single-threaded and needs no cross-origin isolation. Preferred over
+    // a hand-rolled worker: a custom `new Worker(new URL("./x.ts", …))` makes
+    // Turbopack emit the raw .ts as a static asset rather than transpiling it.
+    ort.env.wasm.proxy = true;
 
     const [classes, session] = await Promise.all([
       loadClasses(onProgress),

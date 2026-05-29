@@ -37,13 +37,13 @@ type Mode = "type" | "draw" | "radicals";
 
 const TOP_K = 12;
 
-// Inference runs in a Web Worker (see lib/handwriting/recognizerChannel.ts), so
-// it no longer blocks the canvas pointer events — a stroke always starts on
-// touch even mid-recognition. The debounce stays only to coalesce a flurry of
-// strokes into a single worker round-trip: recognizing every intermediate
-// stroke would queue redundant inference passes whose results are immediately
-// superseded. ~150ms is below the stroke-to-stroke gap of normal handwriting,
-// so candidates still refresh the moment the hand pauses.
+// ONNX inference runs in a worker via ORT's proxy (see lib/handwriting/loader.ts),
+// so the forward passes no longer block the canvas pointer events — a stroke
+// always starts on touch even mid-recognition. The debounce stays only to
+// coalesce a flurry of strokes into a single recognize pass: recognizing every
+// intermediate stroke would queue redundant inference whose results are
+// immediately superseded. ~150ms is below the stroke-to-stroke gap of normal
+// handwriting, so candidates still refresh the moment the hand pauses.
 const RECOGNIZE_DEBOUNCE_MS = 150;
 
 /** True for any CJK ideograph (Unified Ideographs + Extension A). */
