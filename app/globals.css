@@ -205,6 +205,23 @@ button {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
+/* Page-wide selection lock for handwriting input. `HandwritingCanvas` sets
+   `data-drawing` on <html> for the exact lifetime of a stroke (see that
+   component). A stroke can drag off the canvas onto any text on the page —
+   candidate tiles, the detail card, the body — and would otherwise start or
+   extend a selection there (and pop the iOS long-press callout). Forcing every
+   element unselectable for that brief window kills the leak at its source,
+   independent of pointer-capture timing, while leaving all text selectable and
+   copyable whenever a stroke is NOT in flight. `*` + `!important` is
+   deliberate: the lock has to override elements that set their own
+   `user-select` (inputs, the detail card), which inheritance from :root alone
+   would not reach. */
+:root[data-drawing],
+:root[data-drawing] * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
 /* Shell layout is responsive via @media queries — NOT via a JS-driven class
    on `.app`. Rendering all nav variants and letting CSS pick the right one
    is what avoids the "desktop chrome flashes before mobile chrome takes
@@ -2091,26 +2108,6 @@ button {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--ink-ghost) transparent;
-}
-/* A Draw stroke can drag past the canvas and sweep across the input panel,
-   candidate row, and word suggestions below it. Making that text unselectable
-   means the gesture can never start a selection there — the recurring "it
-   still selects something" — regardless of pointer-capture timing. The canvas
-   also suppresses `selectstart` while a stroke is active; this is the static
-   belt-and-suspenders. Scoped to these regions (not the whole screen) so the
-   Type field stays selectable and the detail card's meanings/readings stay
-   copyable. */
-.ks-input,
-.ks-candidates,
-.ks-word-suggestions {
-  -webkit-user-select: none;
-  user-select: none;
-}
-/* …but the Type field is a real text input — keep it selectable even though
-   it lives inside the suppressed `.ks-input` panel. */
-.ks-type-input {
-  -webkit-user-select: text;
-  user-select: text;
 }
 @media (max-width: 540px) {
   .kanji-screen { padding: 14px 14px 24px; gap: 12px; }

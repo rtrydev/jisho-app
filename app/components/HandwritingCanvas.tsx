@@ -37,6 +37,23 @@ function applyStrokeStyle(ctx: CanvasRenderingContext2D): void {
   ctx.lineJoin = "round";
 }
 
+// A handwriting stroke can drag anywhere on the page, so blocking text
+// selection only on the canvas isn't enough — the gesture would otherwise
+// start (or extend) a selection on whatever sibling text it sweeps over (the
+// candidate tiles, the detail card, the body), which also pops the iOS
+// long-press callout and interrupts the stroke. For the exact lifetime of a
+// stroke we flag the document root with `data-drawing`; a single CSS rule keyed
+// off that attribute makes every element unselectable for that window only, so
+// all text stays selectable/copyable the rest of the time. This is a transient
+// interaction lock, deliberately separate from the theme/settings
+// data-attributes that also live on the root.
+function setDrawLock(on: boolean): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (on) root.setAttribute("data-drawing", "");
+  else root.removeAttribute("data-drawing");
+}
+
 export function HandwritingCanvas({
   strokes,
   onStrokesChange,
@@ -74,24 +91,12 @@ export function HandwritingCanvas({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }, [size]);
 
-  // Block text selection for the lifetime of a stroke. The canvas carries
-  // `user-select: none`, which stops a selection that *originates* on it — but
-  // a stroke that drags past the canvas edge (a long sweep, or the pointer
-  // leaving before capture engages) can still start one on the sibling text
-  // below (the mode hint, stroke count, candidate tiles). That selection is
-  // usually invisible — it lands on whitespace or scrolled-off text — yet it
-  // still pops the iOS selection/callout UI and interrupts the stroke.
-  // `preventDefault()` on pointerdown doesn't reliably cancel it across
-  // browsers, so we suppress `selectstart` at the document level while a stroke
-  // is in flight. Gated on `activeStroke` so selection elsewhere is untouched;
-  // one persistent listener avoids add/remove churn on every stroke.
-  useEffect(() => {
-    const onSelectStart = (e: Event) => {
-      if (activeStroke.current) e.preventDefault();
-    };
-    document.addEventListener("selectstart", onSelectStart);
-    return () => document.removeEventListener("selectstart", onSelectStart);
-  }, []);
+  // Release the page-wide selection lock if this canvas unmounts mid-stroke
+  // (e.g. the user switches input mode while a finger is still down), so the
+  // `data-drawing` attribute can never get stuck on and leave the whole app
+  // unselectable. The lock is set/cleared per stroke in the pointer handlers
+  // below; see `setDrawLock`.
+  useEffect(() => () => setDrawLock(false), []);
 
   // Repaint all committed strokes. Runs on `strokes` changes (undo, clear,
   // external mutation) and after a resize — a cheap clear + replay, no backing-
@@ -144,6 +149,8 @@ export function HandwritingCanvas({
       if (sel && sel.rangeCount > 0 && !sel.isCollapsed) sel.removeAllRanges();
       const canvas = canvasRef.current!;
       canvas.setPointerCapture(e.pointerId);
+      // Engage the page-wide selection lock for the lifetime of this stroke.
+      setDrawLock(true);
       const p = pointFor(e);
       activeStroke.current = [p];
 
@@ -188,6 +195,7 @@ export function HandwritingCanvas({
       const active = activeStroke.current;
       if (!active) return;
       activeStroke.current = null;
+      setDrawLock(false);
       try {
         canvasRef.current?.releasePointerCapture(e.pointerId);
       } catch {
@@ -199,6 +207,15 @@ export function HandwritingCanvas({
     [strokes, onStrokesChange],
   );
 
+  // Capture can be revoked out from under us mid-stroke (a second pointer, an
+  // OS-level gesture, the element being disabled). `pointercancel` usually
+  // fires too, but this is the backstop that guarantees the selection lock is
+  // never left engaged when no stroke is in flight.
+  const onLostPointerCapture = useCallback(() => {
+    activeStroke.current = null;
+    setDrawLock(false);
+  }, []);
+
   return (
     <canvas
       ref={canvasRef}
@@ -209,6 +226,7 @@ export function HandwritingCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={finishStroke}
       onPointerCancel={finishStroke}
+      onLostPointerCapture={onLostPointerCapture}
       style={{ touchAction: "none" }}
     />
   );
