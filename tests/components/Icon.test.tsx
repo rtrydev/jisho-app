@@ -21,6 +21,9 @@ const ALL: Array<[string, React.ComponentType<{ size?: number }>]> = [
   ["Undo", Icon.Undo],
   ["Info", Icon.Info],
   ["Kanji", Icon.Kanji],
+  ["Install", Icon.Install],
+  ["PlusSquare", Icon.PlusSquare],
+  ["Overflow", Icon.Overflow],
 ];
 
 describe("Icon set", () => {

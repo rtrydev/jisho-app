@@ -27,6 +27,7 @@ export type { RailItem } from "./SideRail";
 export { BottomTabs } from "./BottomTabs";
 export type { TabItem } from "./BottomTabs";
 export { Sheet } from "./Sheet";
+export { InstallGuide } from "./InstallGuide";
 export { HandwritingCanvas } from "./HandwritingCanvas";
 export { KanjiTile } from "./KanjiTile";
 export { KanjiCard } from "./KanjiCard";

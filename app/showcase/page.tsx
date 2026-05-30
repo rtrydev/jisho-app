@@ -29,6 +29,7 @@ import {
   SideRail,
   BottomTabs,
   Sheet,
+  InstallGuide,
   SettingGroup,
   SettingRow,
   DataAction,
@@ -67,6 +68,7 @@ export default function ShowcasePage() {
   const [active, setActive] = useState<"read" | "history" | "favorites" | "settings">("read");
   const [favs, setFavs] = useState<Set<string>>(() => new Set(favoriteIds));
   const [activeChip, setActiveChip] = useState<string | null>("v-sensei");
+  const [installOpen, setInstallOpen] = useState(false);
 
   // The splash overlay (app/layout.tsx) paints on every route, but this
   // reference page never mounts EngineProvider to clear it — there's no engine
@@ -488,6 +490,31 @@ export default function ShowcasePage() {
                 onToggleFavorite={() => toggleFav(toyobu.id)}
               />
             </Sheet>
+          </div>
+        </Section>
+
+        {/* ── Install guide ────────────────────────────────────────── */}
+        <Section title="Install guide" kanji="携" description="Add-to-Home-Screen walkthrough. Only shown on a mobile browser tab (gated by useInstallPrompt); the trigger replaces the top bar's decorative marginalia with a labeled Install button.">
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <Button
+              variant="quiet"
+              aria-label="Install Jisho"
+              leftIcon={<Icon.Install size={15} />}
+              onClick={() => setInstallOpen(true)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              Install
+            </Button>
+          </div>
+          <div style={{ position: "relative", height: 480, background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 3, overflow: "hidden" }}>
+            <div className="paper-tex" style={{ position: "absolute", inset: 0, padding: 24 }}>
+              <Eyebrow>Mobile · install walkthrough</Eyebrow>
+              <p className="ink-faint" style={{ fontSize: 13, marginTop: 12 }}>
+                Tap a button above to surface the guide. Switch the device tab to
+                compare the iOS and Android steps; Escape or an outside tap closes it.
+              </p>
+            </div>
+            <InstallGuide open={installOpen} platform="ios" onClose={() => setInstallOpen(false)} />
           </div>
         </Section>
 

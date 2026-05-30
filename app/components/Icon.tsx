@@ -199,8 +199,38 @@ export const Kanji = (p: IconProps) => (
   </svg>
 );
 
+/** Down-arrow dropping into an open tray — the universal "install /
+ *  add to device" glyph. Header trigger for the Add-to-Home-Screen
+ *  walkthrough (InstallGuide). */
+export const Install = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path d="M12 3v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M8 9.5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M5 16v2.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+/** Rounded square with a centered plus — mirrors the "Add to Home Screen"
+ *  row icon in iOS Safari's share sheet, used inline in the iOS steps. */
+export const PlusSquare = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <rect x="4" y="4" width="16" height="16" rx="3.5" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M12 8.5v7M8.5 12h7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+/** Three vertical dots — the Android Chrome/Edge overflow ("⋮") menu,
+ *  used inline in the Android steps so users know which control to tap. */
+export const Overflow = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <circle cx="12" cy="5" r="1.6" fill="currentColor"/>
+    <circle cx="12" cy="12" r="1.6" fill="currentColor"/>
+    <circle cx="12" cy="19" r="1.6" fill="currentColor"/>
+  </svg>
+);
+
 export const Icon = {
   Read, History, Favorites, Settings, Search, Close,
   Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Heart,
-  Brush, Undo, Info, Kanji,
+  Brush, Undo, Info, Kanji, Install, PlusSquare, Overflow,
 };

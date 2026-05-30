@@ -437,6 +437,14 @@ button {
   font-weight: 300;
   white-space: nowrap;
 }
+/* Install affordance pinned to the far-right corner — it stands in for the
+   marginalia (which is not rendered when the button is), so it owns the
+   `margin-left:auto`. `inline-flex` aligns its leading icon with the label. */
+.app-topbar-install {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 6px;
+}
 
 /* Desktop hides the mobile brand bar. */
 @media (min-width: 821px) {
@@ -1155,13 +1163,18 @@ button {
   /* Near-full-height sheet — matches the reference design's `92%`. The
      header sticks; `.sheet-body` is the scrolling region. Earlier this
      was `max-height: 72%` which made the modal feel cramped, especially
-     for term cards with examples + conjugation tables. */
-  height: 92%;
+     for term cards with examples + conjugation tables. The height is a
+     token so the `fit` variant below can size to its content instead. */
+  height: var(--sheet-h, 92%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: contain;
 }
+/* Content-sized sheet (install walkthrough and other short panels): rises
+   only as tall as it needs to, capped so very long content still scrolls
+   inside `.sheet-body` rather than off-screen. */
+.sheet-fit { --sheet-h: auto; max-height: 88%; }
 /* Header row inside the sheet — drag handle centered, close button
    pinned to the right of the same row. By living in its own row the
    close never collides with the card's top-right `.float-actions`
@@ -1192,6 +1205,43 @@ button {
   overflow-x: hidden;
 }
 .sheet-body > * { min-width: 0; max-width: 100%; }
+
+/* ─── Install guide (Add-to-Home-Screen walkthrough) ───────────────── */
+.ig { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+.ig-title {
+  font-size: 24px; font-weight: 500; line-height: 1.15;
+  color: var(--ink); margin: 8px 0 0;
+}
+.ig-lede {
+  font-size: 13.5px; line-height: 1.5; margin: 8px 0 0; max-width: 46ch;
+}
+.ig-rule { margin: 16px 0 18px; }
+/* Numbered steps — a seal index disc per row, ink text alongside. */
+.ig-steps {
+  list-style: none; margin: 18px 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.ig-step { display: flex; align-items: flex-start; gap: 12px; }
+.ig-step-n {
+  flex: 0 0 auto;
+  width: 24px; height: 24px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--seal); color: #fbf6e9;
+  font-family: var(--f-mono); font-size: 12px; font-weight: 500;
+  line-height: 1; margin-top: 1px;
+}
+.ig-step-text { font-size: 14px; line-height: 1.5; color: var(--ink-soft); }
+.ig-step-text strong { color: var(--ink); font-weight: 600; }
+/* Inline glyph echoing an on-screen control inside a step. */
+.ig-inline {
+  display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: -3px;
+  width: 22px; height: 22px; border-radius: 5px;
+  background: var(--paper-sink); border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+.ig-note { margin-top: 18px; }
+.ig-foot { margin-top: 20px; display: flex; justify-content: flex-end; }
 
 /* ─── Utility classes ──────────────────────────────────────────────── */
 .ink-faint { color: var(--ink-faint); }

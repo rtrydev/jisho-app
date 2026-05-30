@@ -1,10 +1,13 @@
 "use client";
 
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import * as Icon from "./Icon";
 import { Hanko } from "./Hanko";
+import { Button } from "./Button";
 import { SideRail, type RailItem } from "./SideRail";
 import { BottomTabs, type TabItem } from "./BottomTabs";
+import { InstallGuide } from "./InstallGuide";
+import { useInstallPrompt } from "../lib/installPrompt";
 
 export type ScreenId = "read" | "kanji" | "history" | "favorites" | "settings";
 
@@ -62,6 +65,14 @@ export function AppShell({
   onChange: (id: ScreenId) => void;
   children: ReactNode;
 }) {
+  // Add-to-Home-Screen entry point. `available` is true only on a mobile
+  // browser tab that isn't already installed; the topbar that hosts the
+  // button is itself mobile-only (hidden ≥821px), so the affordance is
+  // doubly gated and never appears as dead chrome on desktop or inside the
+  // installed PWA.
+  const { available: canInstall, platform } = useInstallPrompt();
+  const [installOpen, setInstallOpen] = useState(false);
+
   // The shell layout is fully CSS-driven via @media queries on `.app`,
   // `.app-topbar`, `.rail`, and `.btab`. Render every nav variant on every
   // viewport; the stylesheet hides what doesn't belong. This is what removes
@@ -85,12 +96,32 @@ export function AppShell({
             <span className="mono app-topbar-sub">辞書</span>
           </div>
         </a>
-        <span className="jp app-topbar-marginalia" aria-hidden="true">
-          和 ・ 訳 ・ 英
-        </span>
+        {/* The Install button and the decorative marginalia are mutually
+            exclusive: when installing is possible the actionable button takes
+            the right edge; otherwise the quiet tategaki ornament does. */}
+        {canInstall ? (
+          <Button
+            variant="quiet"
+            className="app-topbar-install"
+            aria-label="Install Jisho"
+            leftIcon={<Icon.Install size={15} />}
+            onClick={() => setInstallOpen(true)}
+          >
+            Install
+          </Button>
+        ) : (
+          <span className="jp app-topbar-marginalia" aria-hidden="true">
+            和 ・ 訳 ・ 英
+          </span>
+        )}
       </header>
       <main className="app-main">{children}</main>
       <BottomTabs<ScreenId> items={TAB_ITEMS} active={active} onChange={onChange} />
+      <InstallGuide
+        open={installOpen}
+        platform={platform}
+        onClose={() => setInstallOpen(false)}
+      />
     </div>
   );
 }
