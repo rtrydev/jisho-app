@@ -48,6 +48,27 @@ function cameraSupported(): boolean {
   return !!navigator.mediaDevices?.getUserMedia && window.isSecureContext;
 }
 
+// "camera" isn't in lib.dom's PermissionName union (it's spec'd in Media
+// Capture, not the base Permissions spec), so the descriptor is cast.
+const CAMERA_PERMISSION = { name: "camera" } as unknown as PermissionDescriptor;
+
+/** Best-effort permission probe via the Permissions API. Returns the live
+ *  PermissionStatus, or null when the API (or the `camera` descriptor) isn't
+ *  available — Safari only added it in 16, and some engines reject the name.
+ *
+ *  NOTE: this can't suppress a prompt. iOS/macOS Safari report `prompt` on
+ *  every fresh load regardless of a prior grant (no web API overrides that);
+ *  the value here is skipping a doomed getUserMedia when already `denied` and
+ *  reflecting out-of-band permission changes. */
+async function queryCameraPermission(): Promise<PermissionStatus | null> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return null;
+  try {
+    return await navigator.permissions.query(CAMERA_PERMISSION);
+  } catch {
+    return null;
+  }
+}
+
 export function useCameraCapture(): CameraCapture {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -79,6 +100,17 @@ export function useCameraCapture(): CameraCapture {
     if (activeRef.current) return; // already requesting/streaming
     activeRef.current = true;
     setStatus({ kind: "requesting" });
+    // If the browser already knows the answer is "no", surface it without
+    // firing a getUserMedia that would only reject. (`granted`/`prompt`/unknown
+    // all fall through — `granted` streams silently, `prompt` shows the OS
+    // prompt, same as before.)
+    const perm = await queryCameraPermission();
+    if (!activeRef.current) return; // stopped while awaiting the probe
+    if (perm?.state === "denied") {
+      activeRef.current = false;
+      setStatus({ kind: "denied" });
+      return;
+    }
     try {
       const next = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" } },
@@ -126,6 +158,30 @@ export function useCameraCapture(): CameraCapture {
 
   // Release the camera when the panel unmounts (leaving Camera mode).
   useEffect(() => stop, [stop]);
+
+  // Reflect an out-of-band permission revocation (toggled off in site/OS
+  // settings while the panel is open) by tearing down and showing the denied
+  // state. Best-effort: only fires on browsers that support live permission
+  // changes — Safari's support is limited, but where it works the UI stays
+  // honest. A re-grant is picked up the next time start() runs.
+  useEffect(() => {
+    let permStatus: PermissionStatus | null = null;
+    let cancelled = false;
+    void queryCameraPermission().then((status) => {
+      if (cancelled || !status) return;
+      permStatus = status;
+      status.onchange = () => {
+        if (status.state === "denied") {
+          stop();
+          setStatus({ kind: "denied" });
+        }
+      };
+    });
+    return () => {
+      cancelled = true;
+      if (permStatus) permStatus.onchange = null;
+    };
+  }, [stop]);
 
   const grabFrame = useCallback((): HTMLCanvasElement | null => {
     const video = videoRef.current;
