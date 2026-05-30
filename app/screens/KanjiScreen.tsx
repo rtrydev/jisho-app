@@ -87,9 +87,14 @@ function extractKanji(text: string): string[] {
 }
 
 export function KanjiScreen({
+  active = true,
   initialChar,
   onClearInitial,
 }: {
+  /** Whether the Kanji tab is the visible screen. Screens stay mounted across
+   *  bottom-nav switches (display:none), so the camera can't rely on unmount to
+   *  release — it pauses when this goes false. */
+  active?: boolean;
   /** Deep-link from URL or from another screen (TermCard breakdown). */
   initialChar?: string | null;
   /** Called after the screen has consumed `initialChar` so the parent can
@@ -390,6 +395,7 @@ export function KanjiScreen({
         )}
         {mode === "camera" && showCamera && (
           <CameraPanel
+            active={active}
             recognizeImage={recognizer.recognizeImage}
             recognizerStatus={recognizer.status}
             onResult={setCameraCandidates}
@@ -608,10 +614,12 @@ function DrawPanel({
 type CropRect = { fx: number; fy: number; fw: number; fh: number };
 
 function CameraPanel({
+  active,
   recognizeImage,
   recognizerStatus,
   onResult,
 }: {
+  active: boolean;
   recognizeImage: (
     cells: Float32Array[],
     topK?: number,
@@ -636,13 +644,22 @@ function CameraPanel({
   const cropRef = useRef(cropRect);
   const axisRef = useRef(axis);
 
-  // Start the camera on entry and clear any candidates from a prior visit so
-  // the candidate row matches the (empty) live viewfinder.
+  // Clear any candidates from a prior visit on entry so the row matches the
+  // (empty) live viewfinder.
   useEffect(() => {
-    start();
     onResult([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Single authority for the live stream: run it only while the Kanji tab is
+  // visible AND we're framing (not viewing a frozen capture). Screens stay
+  // mounted across bottom-nav switches (display:none), so this — not unmount —
+  // is what releases the camera when you leave the tab, and re-acquires it when
+  // you return to a live viewfinder.
+  useEffect(() => {
+    if (active && phase === "live") start();
+    else stop();
+  }, [active, phase, start, stop]);
 
   const setCrop = useCallback((next: CropRect) => {
     cropRef.current = next;
@@ -676,18 +693,19 @@ function CameraPanel({
     setFrameUrl(frame.toDataURL("image/png"));
     const rect = GUIDE_BOX[axisRef.current];
     setCrop(rect);
+    // Switching to the captured phase releases the camera via the stream effect
+    // (the still is already grabbed above, so the live feed isn't needed).
     setPhase("captured");
-    stop(); // freeze on the still; release the camera until Retake
     await recognizeCrop(rect, axisRef.current);
-  }, [grabFrame, stop, setCrop, recognizeCrop]);
+  }, [grabFrame, setCrop, recognizeCrop]);
 
   const onRetake = useCallback(() => {
     frameRef.current = null;
     setFrameUrl(null);
     onResult([]);
+    // Back to live: the stream effect re-acquires the camera.
     setPhase("live");
-    start();
-  }, [start, onResult]);
+  }, [onResult]);
 
   const onChangeAxis = useCallback(
     (next: ReadAxis) => {

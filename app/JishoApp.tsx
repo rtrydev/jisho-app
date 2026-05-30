@@ -95,6 +95,7 @@ function AppRoot() {
         </div>
         <div style={{ display: screen === "kanji" ? "contents" : "none" }}>
           <KanjiScreen
+            active={screen === "kanji"}
             initialChar={kanjiSeed}
             onClearInitial={() => setKanjiSeed(null)}
           />
