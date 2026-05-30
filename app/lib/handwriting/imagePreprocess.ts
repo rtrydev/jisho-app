@@ -41,7 +41,10 @@ const GAP_FRAC = 0.1; // §5 — projection valley cut at 10% of the peak
 const MIN_RUN_FRAC = 0.12; // §5 — drop runs < 12% of the longest (noise/slivers)
 const SPECK_AREA_FRAC = 0.0008; // §4 — components smaller than this are specks
 const LEAK_EDGE_FRAC = 0.5; // edge cell < 0.5× median extent → treat as a leak
-const MAX_CROP_DIM = 720; // downscale ceiling so the pixel ops stay cheap
+// Light smoothing (as a fraction of glyph size) for the valley-snapping profile
+// used by the pitch refinement — see refineByPitch / projectionRuns.
+const SEG_SNAP_FRAC = 0.05;
+const MAX_CROP_DIM = 1080; // downscale ceiling so the pixel ops stay cheap
 
 // --------------------------------------------------------------------------- //
 // canvas helpers (prefer OffscreenCanvas; fall back for older Safari)
@@ -547,6 +550,7 @@ function projectionRuns(ink: Float32Array, w: number, bb: Bbox, axis: ReadAxis):
       for (let x = bb.x0; x < bb.x1; x++) prof[y - bb.y0] += ink[row + x];
     }
   }
+  const perp = axis === "h" ? bh : bw;
   const smoothed = gaussian1d(prof, Math.max(1, len * 0.01));
   let peak = 0;
   for (let i = 0; i < len; i++) if (smoothed[i] > peak) peak = smoothed[i];
@@ -565,7 +569,52 @@ function projectionRuns(ink: Float32Array, w: number, bb: Bbox, axis: ReadAxis):
   if (runs.length === 0) return [];
   let longest = 0;
   for (const r of runs) longest = Math.max(longest, r.b - r.a);
-  return runs.filter((r) => r.b - r.a >= MIN_RUN_FRAC * longest);
+  const kept = runs.filter((r) => r.b - r.a >= MIN_RUN_FRAC * longest);
+  // The threshold above can't split tightly-set glyphs (no valley dips below
+  // GAP_FRAC), so a dense line collapses into one giant run — the reason
+  // detection broke past ~5 characters. Refine by the monospace pitch.
+  const snap = gaussian1d(prof, Math.max(1, perp * SEG_SNAP_FRAC));
+  return refineByPitch(kept, snap, perp);
+}
+
+/** Split runs too wide to be a single glyph into glyph-pitch sub-cells. Japanese
+ *  print is ~monospaced (square em), so a run spanning ~N glyph widths is N
+ *  merged glyphs; cut it into round(width/perp) cells, snapping each cut to the
+ *  deepest valley near the expected pitch position (on a lightly-smoothed
+ *  profile). Single-glyph runs (width ≈ perp) are returned untouched, so lines
+ *  that the projection already split correctly are unaffected. */
+function refineByPitch(runs: Run[], snap: Float32Array, perp: number): Run[] {
+  if (perp <= 0) return runs;
+  const out: Run[] = [];
+  for (const run of runs) {
+    const rw = run.b - run.a;
+    const n = Math.max(1, Math.round(rw / perp));
+    if (n <= 1) {
+      out.push(run);
+      continue;
+    }
+    let prev = run.a;
+    for (let k = 1; k < n; k++) {
+      const target = run.a + (rw * k) / n;
+      const win = Math.max(2, Math.round((rw / n) * 0.3));
+      const lo = Math.max(prev + 1, Math.round(target) - win);
+      const hi = Math.min(run.b - 1, Math.round(target) + win);
+      let cut = Math.round(target);
+      if (hi > lo) {
+        let bestVal = Infinity;
+        for (let p = lo; p < hi; p++) {
+          if (snap[p] < bestVal) {
+            bestVal = snap[p];
+            cut = p;
+          }
+        }
+      }
+      out.push({ a: prev, b: cut });
+      prev = cut;
+    }
+    out.push({ a: prev, b: run.b });
+  }
+  return out;
 }
 
 /** Geometric leak filter (FINDINGS §5). Projection produces extra cells for
