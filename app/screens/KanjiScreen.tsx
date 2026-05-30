@@ -123,6 +123,14 @@ export function KanjiScreen({
   const [selected, setSelected] = useState<string | null>(
     initialChar ? (extractKanji(initialChar)[0] ?? null) : null,
   );
+  // Draw/Camera selection is *per detected position*, keyed by group index —
+  // picking the 2nd guess for one kanji must not disturb the others. A single
+  // `selected` can only remember one group's pick, which is why Type/Radicals
+  // use it but the multi modes need this map. Reset whenever the input changes
+  // (new stroke / new capture) so every group re-snaps to its top guess.
+  const [groupSelections, setGroupSelections] = useState<Record<number, string>>(
+    {},
+  );
 
   // Camera entry is mobile-only and needs a secure context with getUserMedia.
   // `cameraSupported()` reads navigator/window, so it can't run during SSR —
@@ -195,20 +203,19 @@ export function KanjiScreen({
     [candidateGroups],
   );
 
-  // Per-group highlight in the candidate row. The detail card is driven by
-  // the single `selected` (it can only show one kanji), but each detected
-  // character group should still surface *its* top-1 visually — otherwise
-  // groups other than the one containing `selected` look unhighlighted even
-  // though the recognizer has a clear best guess for them. Rule: the group
-  // containing the explicit `selected` shows that char; every other group
-  // shows its own top-1.
+  // The highlighted candidate for each detected position. Every group is
+  // independent: it shows its own manual pick from `groupSelections` if one is
+  // set and still valid, otherwise its top-1 recognizer guess. Because each
+  // group reads only its own entry, picking a candidate for one kanji leaves
+  // the others untouched.
   const groupHighlights: string[] = useMemo(() => {
     if (!isMulti) return [];
-    return multiGroups.map((g) => {
-      if (selected && g.some((c) => c.char === selected)) return selected;
+    return multiGroups.map((g, gi) => {
+      const pick = groupSelections[gi];
+      if (pick && g.some((c) => c.char === pick)) return pick;
       return g[0]?.char ?? "";
     });
-  }, [isMulti, multiGroups, selected]);
+  }, [isMulti, multiGroups, groupSelections]);
 
   // The combined kanji string currently shown for this mode: every kanji in the
   // Type field, every detected character in a Draw (its highlighted candidate),
@@ -240,9 +247,12 @@ export function KanjiScreen({
     if (!candidates.length) return;
     if (isMulti) {
       // Draw refines per stroke and each Camera capture is a fresh input, so a
-      // new candidate list always re-snaps to the top recognizer guess.
+      // changed candidate list is a brand-new input: drop the manual per-group
+      // picks and let every group fall back to its top recognizer guess. This
+      // fires on input change only — selecting a candidate doesn't alter the
+      // candidate set, so a pick made within a stable list survives.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSelected(candidates[0]);
+      setGroupSelections({});
       return;
     }
     if (selected && candidates.includes(selected)) return;
@@ -301,25 +311,45 @@ export function KanjiScreen({
 
   // ----- Detail entries --------------------------------------------- //
   //
-  // One entry per slot the user is inspecting. Draw mode can detect several
-  // character groups, and each gets its own card driven by that group's
-  // highlighted candidate (groupHighlights) — so a two-kanji drawing yields
-  // two cards, not one. Type/Radicals inspect the single explicit `selected`.
-  // An entry whose char isn't in the shipped class set carries a null `info`,
-  // so the detail shows the out-of-set note in its place.
+  // One card per found kanji, mirroring Read's term list. Type yields a card
+  // for every kanji in the field; Draw/Camera one per detected character group
+  // (driven by that group's highlighted candidate); Radicals stays a single
+  // inspected card since it can match hundreds. An entry whose char isn't in
+  // the shipped class set carries a null `info`, so the detail shows the
+  // out-of-set note in its place.
   const detailChars = useMemo<string[]>(() => {
+    // Type mode mirrors Read's term list: a card for *every* kanji in the
+    // field, not just the focused one. Draw/Camera surface one card per
+    // detected position (its highlighted candidate). Radicals can match up to
+    // RESULT_LIMIT kanji, so it stays select-to-inspect — a single card.
+    if (mode === "type") return typeCandidates;
     if (isMulti) return groupHighlights.filter((c) => c.length > 0);
     return selected ? [selected] : [];
-  }, [isMulti, groupHighlights, selected]);
+  }, [mode, isMulti, typeCandidates, groupHighlights, selected]);
 
   const detailEntries = useMemo(
     () =>
-      detailChars.map((char) => {
+      detailChars.map((char, i) => {
         const info = kanji.resources?.kanji[char] ?? null;
-        return { char, info, examples: info ? findKanjiExamples(char, 10) : [] };
+        // Card identity for the ref/pulse + the candidate-row jump target.
+        // Type/Radicals key by char (distinct within their own list);
+        // Draw/Camera key by position (`g${i}`) since two detected positions
+        // can hold the same character.
+        const key = isMulti ? `g${i}` : char;
+        return { key, char, info, examples: info ? findKanjiExamples(char, 10) : [] };
       }),
-    [detailChars, kanji.resources, findKanjiExamples],
+    [detailChars, isMulti, kanji.resources, findKanjiExamples],
   );
+
+  // Two-column masonry on desktop, mirroring Read's term grid: even indices
+  // flow into the left column, odd into the right, so unequal card heights
+  // don't leave gaps. Mobile renders the flat list as a single column.
+  const detailColumns = useMemo(() => {
+    const left: typeof detailEntries = [];
+    const right: typeof detailEntries = [];
+    detailEntries.forEach((e, i) => (i % 2 === 0 ? left : right).push(e));
+    return [left, right];
+  }, [detailEntries]);
 
   // ----- Actions ----------------------------------------------------- //
 
@@ -336,6 +366,22 @@ export function KanjiScreen({
       void navigator.clipboard.writeText(char);
     }
   }, []);
+
+  // Candidate tile → select it. Unlike Read's breakdown chips (which navigate
+  // to a card spread down a long list), selecting a kanji isn't navigation: the
+  // card list is right here and the active-tile border already marks the pick,
+  // so there's no scroll-to or pulse. In Draw/Camera the pick is per-position
+  // (other groups keep theirs); Type/Radicals use the single `selected`.
+  const onTileClick = useCallback(
+    (groupIndex: number, ch: string) => {
+      if (isMulti) {
+        setGroupSelections((prev) => ({ ...prev, [groupIndex]: ch }));
+      } else {
+        setSelected(ch);
+      }
+    },
+    [isMulti],
+  );
 
   // ----- Empty / loading copy ---------------------------------------- //
 
@@ -366,6 +412,23 @@ export function KanjiScreen({
     { value: "radicals", label: "Radicals" },
   ];
   if (showCamera) modeOptions.push({ value: "camera", label: "Camera" });
+
+  // One found-kanji card (or out-of-set note). Shared by the mobile (flat) and
+  // desktop (two-column masonry) layouts below.
+  const renderDetail = (entry: (typeof detailEntries)[number]) =>
+    entry.info ? (
+      <KanjiCard
+        key={entry.key}
+        card={{ char: entry.char, info: entry.info, examples: entry.examples }}
+        onCopy={() => copyChar(entry.char)}
+        onRadicalClick={onRadicalSearch}
+      />
+    ) : (
+      <p key={entry.key} className="ks-empty ink-faint">
+        <span className="jp">{entry.char}</span> is outside the shipped class set
+        (kanji.json.gz only covers JMdict ∩ KANJIDIC2 ∩ RADKFILE).
+      </p>
+    );
 
   return (
     <div className="screen kanji-screen">
@@ -433,7 +496,7 @@ export function KanjiScreen({
                       char={ch}
                       score={score}
                       active={active}
-                      onClick={() => setSelected(ch)}
+                      onClick={() => onTileClick(gi, ch)}
                       ariaLabel={`Show details for ${ch}`}
                     />
                   );
@@ -481,27 +544,16 @@ export function KanjiScreen({
       <section className="ks-detail">
         {candidates.length === 0 ? null : dataNotReady ? (
           <p className="ks-empty ink-faint">{loadingMessage}</p>
+        ) : isMobile ? (
+          <div className="ks-detail-grid">{detailEntries.map(renderDetail)}</div>
         ) : (
-          detailEntries.map((entry, i) =>
-            entry.info ? (
-              <KanjiCard
-                key={`${i}-${entry.char}`}
-                card={{
-                  char: entry.char,
-                  info: entry.info,
-                  examples: entry.examples,
-                }}
-                onCopy={() => copyChar(entry.char)}
-                onRadicalClick={onRadicalSearch}
-              />
-            ) : (
-              <p key={`${i}-${entry.char}`} className="ks-empty ink-faint">
-                <span className="jp">{entry.char}</span> is outside the shipped
-                class set (kanji.json.gz only covers JMdict ∩ KANJIDIC2 ∩
-                RADKFILE).
-              </p>
-            ),
-          )
+          <div className="ks-detail-grid ks-detail-grid-cols">
+            {detailColumns.map((col, ci) => (
+              <div className="ks-detail-col" key={ci}>
+                {col.map(renderDetail)}
+              </div>
+            ))}
+          </div>
         )}
       </section>
     </div>

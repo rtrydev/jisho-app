@@ -2458,13 +2458,32 @@ button {
 
 /* ---- Detail panel + shared empty state ---- */
 
-/* Stack one card per detected character group (Draw mode can surface more
-   than one) with the same rhythm as the screen's other sections. */
+/* The found-kanji card list. Mirrors Read's term grid (`.rc-grid` /
+   `.rc-grid-cols`) so a card per found kanji lays out exactly like the word
+   list: a two-column masonry on desktop, a single column on mobile. */
 .ks-detail {
   flex: 0 0 auto;
+}
+.ks-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 820px) { .ks-detail-grid { grid-template-columns: 1fr; gap: 12px; } }
+/* Two-column masonry: each column flows independently so unequal card heights
+   don't leave gaps. Even indices flow into the left column, odd into the right
+   (distribution happens in KanjiScreen). */
+.ks-detail-grid-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.ks-detail-col {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  min-width: 0;
 }
 .ks-empty {
   margin: 0;
