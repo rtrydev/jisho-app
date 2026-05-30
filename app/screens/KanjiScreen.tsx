@@ -92,30 +92,27 @@ export function KanjiScreen({
     () => new Set(),
   );
   const [radicalResults, setRadicalResults] = useState<string[]>([]);
-  const [selected, setSelected] = useState<string | null>(initialChar ?? null);
+  const [selected, setSelected] = useState<string | null>(
+    initialChar ? (extractKanji(initialChar)[0] ?? null) : null,
+  );
 
-  // When the parent deep-links a new char, jump back to Type mode and seed.
-  // The keying in JishoApp's `<KanjiScreen key={initialChar ?? null}>` makes
-  // re-seeds free; we still onClearInitial so the parent forgets the seed.
+  // When the parent deep-links a seed, jump back to Type mode and drop the
+  // whole string into the field. `initialChar` is now a *combined* input
+  // string (one or many kanji — see `inputString` below), so a multi-kanji
+  // query restores all of its candidates, with the first one inspected.
   // The setStates here legitimately sync state from props — the screen's
   // initial state can't be expressed in useState because the prop changes
   // after mount via the openKanji nav action.
   useEffect(() => {
-    if (initialChar && initialChar !== selected) {
+    if (initialChar && initialChar !== typedText) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode("type");
       setTypedText(initialChar);
-      setSelected(initialChar);
+      setSelected(extractKanji(initialChar)[0] ?? null);
     }
     onClearInitial?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialChar]);
-
-  // Mirror the selected kanji to ?kanji= so refresh/share lands you where you
-  // were. Treats the Kanji screen the same way ReadScreen mirrors ?q=.
-  useEffect(() => {
-    writeKanjiParam(selected);
-  }, [selected]);
 
   // ----- Candidates per mode (memoized; cheap) ---------------------- //
 
@@ -160,6 +157,25 @@ export function KanjiScreen({
       return g[0]?.char ?? "";
     });
   }, [mode, drawCandidateGroups, selected]);
+
+  // The combined kanji string currently shown for this mode: every kanji in the
+  // Type field, every detected character in a Draw (its highlighted candidate),
+  // or the single inspected result in Radicals. This is what we mirror to the
+  // URL (below) so a refresh or shared link restores the *whole* multi-character
+  // input, not just the one kanji whose detail card happens to be open.
+  const inputString = useMemo<string>(() => {
+    if (mode === "type") return typeCandidates.join("");
+    if (mode === "draw") return groupHighlights.join("");
+    return selected ?? "";
+  }, [mode, typeCandidates, groupHighlights, selected]);
+
+  // Mirror the current input string to ?kanji= so refresh/share lands you where
+  // you were. Treats the Kanji screen the same way ReadScreen mirrors ?q=. The
+  // seed flows back through `initialChar` → Type field on load, so a multi-kanji
+  // input round-trips as its combined string.
+  useEffect(() => {
+    writeKanjiParam(inputString);
+  }, [inputString]);
 
   // Auto-select the top candidate when a new candidate list comes in for a
   // mode. Type/Radicals preserve an explicit user pick ("if you type a kanji
