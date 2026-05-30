@@ -2225,6 +2225,118 @@ button {
 .ks-stroke-count { margin-left: auto; font-size: 12px; padding: 5px 8px; -webkit-user-select: none; user-select: none; }
 .ks-draw-status { font-size: 12px; margin: 0; font-style: italic; }
 
+/* ---- Camera mode (mobile-only) ---- */
+
+.ks-camera { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+.ks-cam-stage {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 3 / 4;
+  background: var(--paper-sink);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ks-cam-video,
+.ks-cam-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Guide box: horizontal (wide) by default, vertical (tall) via .is-v. The
+   inset percentages mirror GUIDE_BOX in KanjiScreen.tsx so the framed area is
+   exactly the region that gets cropped + read. The huge spread shadow scrims
+   everything outside the box (clipped by the stage's overflow:hidden). */
+.ks-cam-guide {
+  position: absolute;
+  left: 7%; right: 7%; top: 33%; bottom: 33%;
+  border: 2px solid var(--seal);
+  border-radius: 3px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+}
+.ks-cam-guide.is-v { left: 33%; right: 33%; top: 7%; bottom: 7%; }
+
+/* Adjustable crop box over the captured still — same scrim treatment as the
+   live guide, but draggable (whole box) and corner-resizable (handles). */
+.ks-cam-crop {
+  position: absolute;
+  border: 2px solid var(--seal);
+  border-radius: 3px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.32);
+  cursor: move;
+  touch-action: none; /* claim the gesture so dragging doesn't scroll */
+}
+/* Corner handles — vermilion dots with a white ring for visibility over any
+   photo (theme-independent, like the scrim/veil). */
+.ks-cam-handle {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  background: var(--seal);
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  touch-action: none;
+}
+.ks-cam-handle.is-nw { left: -11px; top: -11px; cursor: nwse-resize; }
+.ks-cam-handle.is-ne { right: -11px; top: -11px; cursor: nesw-resize; }
+.ks-cam-handle.is-sw { left: -11px; bottom: -11px; cursor: nesw-resize; }
+.ks-cam-handle.is-se { right: -11px; bottom: -11px; cursor: nwse-resize; }
+
+/* Status veil sits over a camera feed / blank stage, so its text is a fixed
+   light colour over a dark scrim rather than a themed ink token. */
+.ks-cam-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.ks-cam-msg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 18px;
+  text-align: center;
+  font-size: 13px;
+  max-width: 280px;
+}
+.ks-cam-msg p { margin: 0; }
+
+.ks-cam-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+}
+/* Shutter — a large round seal-accented icon button (variant="icon" base). */
+.ks-cam-shutter {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 2px solid var(--seal);
+  color: var(--seal);
+}
+.ks-cam-shutter:disabled { opacity: 0.45; }
+
+.ks-cam-hint { font-size: 12px; margin: 0; text-align: center; max-width: 320px; }
+
 /* ---- Radicals mode ---- */
 
 .ks-radicals-wrap {

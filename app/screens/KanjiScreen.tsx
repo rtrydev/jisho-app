@@ -16,7 +16,17 @@
 //     radical chips in the card jump back to Radicals mode pre-seeded,
 //     so the lookup loop closes inside this one screen.
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { Button } from "../components/Button";
 import { Eyebrow, Ornament } from "../components/Eyebrow";
 import * as Icon from "../components/Icon";
@@ -24,18 +34,29 @@ import { HandwritingCanvas } from "../components/HandwritingCanvas";
 import { KanjiCard } from "../components/KanjiCard";
 import { KanjiTile } from "../components/KanjiTile";
 import { RadicalPicker } from "../components/RadicalPicker";
-import { Segmented } from "../components/Segmented";
+import { Segmented, type SegmentedOption } from "../components/Segmented";
 import { TextField } from "../components/TextField";
+import { useIsMobile } from "../components/AppShell";
 import { useKanjiData } from "../lib/kanji/useKanjiData";
 import { useKanjiRecognizer } from "../lib/handwriting/useKanjiRecognizer";
+import { imageToCells, type ReadAxis } from "../lib/handwriting/imagePreprocess";
+import { useCameraCapture, cameraSupported } from "../lib/camera/useCameraCapture";
 import { useAnalyzer } from "../providers/EngineProvider";
 import { useNav } from "../JishoApp";
 import { writeKanjiParam } from "../lib/share";
 import type { Candidate, Stroke } from "../lib/handwriting/types";
 
-type Mode = "type" | "draw" | "radicals";
+type Mode = "type" | "draw" | "radicals" | "camera";
 
 const TOP_K = 12;
+
+// Centered guide box per reading axis, as fractions of the viewfinder stage.
+// The crop on capture and the overlay rectangle are both derived from these,
+// so the box the user frames is exactly what gets read.
+const GUIDE_BOX: Record<ReadAxis, { fx: number; fy: number; fw: number; fh: number }> = {
+  h: { fx: 0.07, fy: 0.33, fw: 0.86, fh: 0.34 },
+  v: { fx: 0.33, fy: 0.07, fw: 0.34, fh: 0.86 },
+};
 
 // ONNX inference runs in a dedicated Web Worker (see lib/handwriting/
 // recognizerClient.ts → recognizer.worker.ts), so the forward passes no longer
@@ -88,6 +109,9 @@ export function KanjiScreen({
   // Single-char drawings produce a one-element outer array; multi-char
   // drawings produce one entry per recognised character.
   const [drawCandidates, setDrawCandidates] = useState<Candidate[][]>([]);
+  // Camera mode produces the same per-character shape as Draw, so it flows
+  // through the same downstream candidate/detail/word-suggestion logic.
+  const [cameraCandidates, setCameraCandidates] = useState<Candidate[][]>([]);
   const [radicalSelection, setRadicalSelection] = useState<Set<string>>(
     () => new Set(),
   );
@@ -95,6 +119,26 @@ export function KanjiScreen({
   const [selected, setSelected] = useState<string | null>(
     initialChar ? (extractKanji(initialChar)[0] ?? null) : null,
   );
+
+  // Camera entry is mobile-only and needs a secure context with getUserMedia.
+  // `cameraSupported()` reads navigator/window, so it can't run during SSR —
+  // read it through useSyncExternalStore (server snapshot `false`, client
+  // snapshot real) the same way useIsMobile bridges the breakpoint. It never
+  // changes at runtime, so the subscribe is a no-op.
+  const isMobile = useIsMobile();
+  const camAvailable = useSyncExternalStore(
+    () => () => {},
+    () => cameraSupported(),
+    () => false,
+  );
+  const showCamera = isMobile && camAvailable;
+
+  // If the Camera segment goes away (resize to desktop, or it was never
+  // available), don't strand the screen on a hidden mode.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (mode === "camera" && !showCamera) setMode("type");
+  }, [mode, showCamera]);
 
   // When the parent deep-links a seed, jump back to Type mode and drop the
   // whole string into the field. `initialChar` is now a *combined* input
@@ -120,24 +164,28 @@ export function KanjiScreen({
     () => extractKanji(typedText),
     [typedText],
   );
-  // When strokes are wiped, hide stale recognizer output without touching
-  // `drawCandidates` state — clearing in an effect would itself trip the
-  // set-state-in-effect rule.
-  const drawCandidateGroups = useMemo<Candidate[][]>(
-    () => (strokes.length === 0 ? [] : drawCandidates),
-    [drawCandidates, strokes.length],
-  );
+  // Draw and Camera share a per-character candidate shape (Candidate[][]), so
+  // the rest of the screen treats them identically via `multiGroups`. Draw
+  // hides stale output when strokes are wiped (clearing in an effect would trip
+  // the set-state-in-effect rule); Camera clears via the panel's onResult on
+  // retake / mode entry.
+  const isMulti = mode === "draw" || mode === "camera";
+  const multiGroups = useMemo<Candidate[][]>(() => {
+    if (mode === "draw") return strokes.length === 0 ? [] : drawCandidates;
+    if (mode === "camera") return cameraCandidates;
+    return [];
+  }, [mode, strokes.length, drawCandidates, cameraCandidates]);
   // Grouped view for rendering — type/radicals modes always have a single
-  // group; draw mode has one per detected character.
+  // group; draw/camera have one per detected character.
   const candidateGroups: string[][] = useMemo(() => {
     if (mode === "type")
       return typeCandidates.length ? [typeCandidates] : [];
-    if (mode === "draw")
-      return drawCandidateGroups
+    if (isMulti)
+      return multiGroups
         .map((g) => g.map((c) => c.char))
         .filter((g) => g.length > 0);
     return radicalResults.length ? [radicalResults] : [];
-  }, [mode, typeCandidates, drawCandidateGroups, radicalResults]);
+  }, [mode, isMulti, typeCandidates, multiGroups, radicalResults]);
   const candidates: string[] = useMemo(
     () => candidateGroups.flat(),
     [candidateGroups],
@@ -151,12 +199,12 @@ export function KanjiScreen({
   // containing the explicit `selected` shows that char; every other group
   // shows its own top-1.
   const groupHighlights: string[] = useMemo(() => {
-    if (mode !== "draw") return [];
-    return drawCandidateGroups.map((g) => {
+    if (!isMulti) return [];
+    return multiGroups.map((g) => {
       if (selected && g.some((c) => c.char === selected)) return selected;
       return g[0]?.char ?? "";
     });
-  }, [mode, drawCandidateGroups, selected]);
+  }, [isMulti, multiGroups, selected]);
 
   // The combined kanji string currently shown for this mode: every kanji in the
   // Type field, every detected character in a Draw (its highlighted candidate),
@@ -165,9 +213,9 @@ export function KanjiScreen({
   // input, not just the one kanji whose detail card happens to be open.
   const inputString = useMemo<string>(() => {
     if (mode === "type") return typeCandidates.join("");
-    if (mode === "draw") return groupHighlights.join("");
+    if (isMulti) return groupHighlights.join("");
     return selected ?? "";
-  }, [mode, typeCandidates, groupHighlights, selected]);
+  }, [mode, isMulti, typeCandidates, groupHighlights, selected]);
 
   // Mirror the current input string to ?kanji= so refresh/share lands you where
   // you were. Treats the Kanji screen the same way ReadScreen mirrors ?q=. The
@@ -186,7 +234,9 @@ export function KanjiScreen({
   // another tile to inspect it until the next stroke changes the candidates.
   useEffect(() => {
     if (!candidates.length) return;
-    if (mode === "draw") {
+    if (isMulti) {
+      // Draw refines per stroke and each Camera capture is a fresh input, so a
+      // new candidate list always re-snaps to the top recognizer guess.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelected(candidates[0]);
       return;
@@ -233,9 +283,9 @@ export function KanjiScreen({
   // mode + ≥2 detected character groups in the engine helper itself, so we
   // only need to gate the React work by mode here.
   const wordSuggestions = useMemo(() => {
-    if (mode !== "draw") return [];
-    return suggestWordCombinations(drawCandidates);
-  }, [mode, drawCandidates, suggestWordCombinations]);
+    if (!isMulti) return [];
+    return suggestWordCombinations(multiGroups);
+  }, [isMulti, multiGroups, suggestWordCombinations]);
 
   // ----- Radical click-through from KanjiCard ----------------------- //
 
@@ -254,9 +304,9 @@ export function KanjiScreen({
   // An entry whose char isn't in the shipped class set carries a null `info`,
   // so the detail shows the out-of-set note in its place.
   const detailChars = useMemo<string[]>(() => {
-    if (mode === "draw") return groupHighlights.filter((c) => c.length > 0);
+    if (isMulti) return groupHighlights.filter((c) => c.length > 0);
     return selected ? [selected] : [];
-  }, [mode, groupHighlights, selected]);
+  }, [isMulti, groupHighlights, selected]);
 
   const detailEntries = useMemo(
     () =>
@@ -300,7 +350,18 @@ export function KanjiScreen({
       ? "Type or paste a kanji above — every CJK character in the field becomes a candidate."
       : mode === "draw"
         ? "Draw a kanji in the box above — candidates appear as you complete each stroke."
-        : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out.";
+        : mode === "camera"
+          ? "Capture a line of kanji with the camera above — candidates appear after the shot. Kana isn't read."
+          : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out.";
+
+  // The Camera segment only appears on mobile with a usable camera; everything
+  // else keeps the original three.
+  const modeOptions: SegmentedOption<Mode>[] = [
+    { value: "type", label: "Type" },
+    { value: "draw", label: "Draw" },
+    { value: "radicals", label: "Radicals" },
+  ];
+  if (showCamera) modeOptions.push({ value: "camera", label: "Camera" });
 
   return (
     <div className="screen kanji-screen">
@@ -308,11 +369,7 @@ export function KanjiScreen({
       <section className="ks-modes">
         <Segmented<Mode>
           value={mode}
-          options={[
-            { value: "type", label: "Type" },
-            { value: "draw", label: "Draw" },
-            { value: "radicals", label: "Radicals" },
-          ]}
+          options={modeOptions}
           onChange={setMode}
           ariaLabel="Kanji input mode"
         />
@@ -330,6 +387,13 @@ export function KanjiScreen({
             recognizerStatus={recognizer.status}
             onUndo={onUndoStroke}
             onClear={onClearStrokes}
+          />
+        )}
+        {mode === "camera" && showCamera && (
+          <CameraPanel
+            recognizeImage={recognizer.recognizeImage}
+            recognizerStatus={recognizer.status}
+            onResult={setCameraCandidates}
           />
         )}
         {mode === "radicals" && (
@@ -355,19 +419,17 @@ export function KanjiScreen({
                   <Ornament className="ks-candidate-divider">・</Ornament>
                 )}
                 {group.map((ch, i) => {
-                  const drawScore =
-                    mode === "draw"
-                      ? drawCandidates[gi]?.find((c) => c.char === ch)?.score
-                      : undefined;
-                  const active =
-                    mode === "draw"
-                      ? ch === groupHighlights[gi]
-                      : ch === selected;
+                  const score = isMulti
+                    ? multiGroups[gi]?.find((c) => c.char === ch)?.score
+                    : undefined;
+                  const active = isMulti
+                    ? ch === groupHighlights[gi]
+                    : ch === selected;
                   return (
                     <KanjiTile
                       key={`${gi}-${ch}-${i}`}
                       char={ch}
-                      score={drawScore}
+                      score={score}
                       active={active}
                       onClick={() => setSelected(ch)}
                       ariaLabel={`Show details for ${ch}`}
@@ -384,11 +446,11 @@ export function KanjiScreen({
         )}
       </section>
 
-      {/* Word suggestions — only meaningful in Draw mode when the segmenter
-          found ≥2 characters AND at least one combination matched the
+      {/* Word suggestions — meaningful in Draw and Camera modes when ≥2
+          characters were detected AND at least one combination matched the
           dictionary. Tapping a suggestion jumps to Read with the headword
           seeded so the user can look it up immediately. */}
-      {mode === "draw" && wordSuggestions.length > 0 && (
+      {isMulti && wordSuggestions.length > 0 && (
         <section className="ks-word-suggestions">
           <Eyebrow>Words</Eyebrow>
           <div className="ks-word-row thin-scroll">
@@ -535,6 +597,372 @@ function DrawPanel({
       )}
     </div>
   );
+}
+
+
+// ============================ Camera panel ===============================
+//
+// Multi-character camera capture (mobile-only). A live rear-camera viewfinder
+// with a manual horizontal/vertical guide box; the shutter grabs one still,
+// crops it to the guide box, runs the pixel pipeline (imagePreprocess.ts), and
+// recognizes each detected cell off the main thread. Results flow through the
+// same candidate row + KanjiCard as Draw. Capture-then-process, not live —
+// the recognizer is WASM and the pre-stage is one-shot (FINDINGS §9).
+
+type CropRect = { fx: number; fy: number; fw: number; fh: number };
+
+function CameraPanel({
+  recognizeImage,
+  recognizerStatus,
+  onResult,
+}: {
+  recognizeImage: (
+    cells: Float32Array[],
+    topK?: number,
+  ) => Promise<Candidate[][]>;
+  recognizerStatus: ReturnType<typeof useKanjiRecognizer>["status"];
+  onResult: (groups: Candidate[][]) => void;
+}) {
+  const { status, videoRef, start, stop, grabFrame } = useCameraCapture();
+  const [axis, setAxis] = useState<ReadAxis>("h");
+  const [phase, setPhase] = useState<"live" | "captured">("live");
+  const [busy, setBusy] = useState(false);
+  // The captured still is shown as the FULL frame at the same framing as the
+  // live viewfinder (object-fit: cover), so the shot doesn't appear to zoom on
+  // capture. The frame canvas is also kept in a ref so the crop can be re-read
+  // at intrinsic resolution whenever the user adjusts the box.
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const frameRef = useRef<HTMLCanvasElement | null>(null);
+  const [cropRect, setCropRect] = useState<CropRect>(GUIDE_BOX.h);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  // Mirrors for async handlers (pointer-up commit, axis change) so they read
+  // the latest crop + axis without a stale closure.
+  const cropRef = useRef(cropRect);
+  const axisRef = useRef(axis);
+
+  // Start the camera on entry and clear any candidates from a prior visit so
+  // the candidate row matches the (empty) live viewfinder.
+  useEffect(() => {
+    start();
+    onResult([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const setCrop = useCallback((next: CropRect) => {
+    cropRef.current = next;
+    setCropRect(next);
+  }, []);
+
+  // Crop the frozen frame to `rect` and recognize it along `readAxis`. Used by
+  // the initial shutter, the crop-box commit, and axis changes.
+  const recognizeCrop = useCallback(
+    async (rect: CropRect, readAxis: ReadAxis) => {
+      const stage = stageRef.current;
+      const frame = frameRef.current;
+      if (!stage || !frame) return;
+      const crop = cropFromRect(frame, stage, rect);
+      if (!crop) return;
+      setBusy(true);
+      try {
+        const cells = imageToCells(crop, readAxis);
+        onResult(await recognizeImage(cells, TOP_K));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [recognizeImage, onResult],
+  );
+
+  const onShutter = useCallback(async () => {
+    const frame = grabFrame();
+    if (!frame) return;
+    frameRef.current = frame;
+    setFrameUrl(frame.toDataURL("image/png"));
+    const rect = GUIDE_BOX[axisRef.current];
+    setCrop(rect);
+    setPhase("captured");
+    stop(); // freeze on the still; release the camera until Retake
+    await recognizeCrop(rect, axisRef.current);
+  }, [grabFrame, stop, setCrop, recognizeCrop]);
+
+  const onRetake = useCallback(() => {
+    frameRef.current = null;
+    setFrameUrl(null);
+    onResult([]);
+    setPhase("live");
+    start();
+  }, [start, onResult]);
+
+  const onChangeAxis = useCallback(
+    (next: ReadAxis) => {
+      axisRef.current = next;
+      setAxis(next);
+      if (phase === "captured") {
+        // Re-segment the same still in the new reading direction.
+        void recognizeCrop(cropRef.current, next);
+      } else {
+        // Live: reset the guide to the default shape for the new axis.
+        setCrop(GUIDE_BOX[next]);
+      }
+    },
+    [phase, recognizeCrop, setCrop],
+  );
+
+  const onCropCommit = useCallback(() => {
+    void recognizeCrop(cropRef.current, axisRef.current);
+  }, [recognizeCrop]);
+
+  const live = status.kind === "streaming";
+  const recognizerReady = recognizerStatus.kind === "ready";
+
+  return (
+    <div className="ks-camera">
+      <Segmented<ReadAxis>
+        value={axis}
+        options={[
+          { value: "h", label: "Horizontal" },
+          { value: "v", label: "Vertical" },
+        ]}
+        onChange={onChangeAxis}
+        ariaLabel="Reading direction"
+      />
+
+      <div className="ks-cam-stage" ref={stageRef}>
+        {phase === "captured" ? (
+          <>
+            {frameUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="ks-cam-still" src={frameUrl} alt="Captured photo" />
+            )}
+            <CropBox
+              rect={cropRect}
+              stageRef={stageRef}
+              onChange={setCrop}
+              onCommit={onCropCommit}
+            />
+            {busy && <div className="ks-cam-veil">Reading…</div>}
+          </>
+        ) : live || status.kind === "requesting" ? (
+          <>
+            <video
+              ref={videoRef}
+              className="ks-cam-video"
+              muted
+              playsInline
+              aria-label="Camera viewfinder"
+            />
+            <div
+              className={`ks-cam-guide${axis === "v" ? " is-v" : ""}`}
+              aria-hidden
+            />
+            {!live && <div className="ks-cam-veil">Starting camera…</div>}
+          </>
+        ) : (
+          <CameraMessage status={status} onRetry={start} />
+        )}
+      </div>
+
+      <div className="ks-cam-actions">
+        {phase === "captured" ? (
+          <Button
+            variant="ghost"
+            leftIcon={<Icon.Camera size={14} />}
+            onClick={onRetake}
+            aria-label="Retake photo"
+          >
+            Retake
+          </Button>
+        ) : (
+          <Button
+            variant="icon"
+            className="ks-cam-shutter"
+            onClick={onShutter}
+            disabled={!live || !recognizerReady}
+            aria-label="Capture"
+          >
+            <Icon.Camera size={22} />
+          </Button>
+        )}
+      </div>
+
+      <p className="ks-cam-hint ink-faint">
+        {phase === "captured"
+          ? "Drag the box to fine-tune what's read — it re-reads when you let go."
+          : "Frame a line of kanji inside the box and tap the shutter. Kana isn’t read — kanji only."}
+      </p>
+      {recognizerStatus.kind === "loading" && (
+        <p className="ks-draw-status ink-faint">
+          {recognizerStatus.step} {Math.round(recognizerStatus.progress * 100)}%
+        </p>
+      )}
+      {recognizerStatus.kind === "error" && (
+        <p className="ks-draw-status ink-faint">
+          Recognizer failed to load: {recognizerStatus.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Draggable + corner-resizable crop rectangle over the captured still. Works in
+// stage fractions; pointer capture on the grabbed element keeps the drag alive
+// even if the pointer leaves it, and events bubble back to the box so a single
+// move/up handler covers both move and resize.
+const MIN_CROP_FRAC = 0.08;
+type DragMode = "move" | "nw" | "ne" | "sw" | "se";
+
+function CropBox({
+  rect,
+  stageRef,
+  onChange,
+  onCommit,
+}: {
+  rect: CropRect;
+  stageRef: RefObject<HTMLDivElement | null>;
+  onChange: (next: CropRect) => void;
+  onCommit: () => void;
+}) {
+  const drag = useRef<{ mode: DragMode; x: number; y: number; start: CropRect } | null>(
+    null,
+  );
+
+  // One pointerdown handler on the box; the grabbed corner (if any) is read
+  // from the hit element's data-handle, defaulting to "move" for the body.
+  // Capture stays on the box so move/up keep firing through the drag.
+  const onDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const mode = ((e.target as HTMLElement).dataset.handle as DragMode) || "move";
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag.current = { mode, x: e.clientX, y: e.clientY, start: rect };
+  };
+
+  const onMove = (e: ReactPointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    const stage = stageRef.current;
+    if (!d || !stage) return;
+    const sw = stage.clientWidth;
+    const sh = stage.clientHeight;
+    if (!sw || !sh) return;
+    const dx = (e.clientX - d.x) / sw;
+    const dy = (e.clientY - d.y) / sh;
+    const s = d.start;
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    let next: CropRect;
+    if (d.mode === "move") {
+      next = {
+        fx: clamp(s.fx + dx, 0, 1 - s.fw),
+        fy: clamp(s.fy + dy, 0, 1 - s.fh),
+        fw: s.fw,
+        fh: s.fh,
+      };
+    } else {
+      let x0 = s.fx;
+      let y0 = s.fy;
+      let x1 = s.fx + s.fw;
+      let y1 = s.fy + s.fh;
+      if (d.mode === "nw" || d.mode === "sw") x0 = clamp(s.fx + dx, 0, x1 - MIN_CROP_FRAC);
+      if (d.mode === "ne" || d.mode === "se") x1 = clamp(x1 + dx, x0 + MIN_CROP_FRAC, 1);
+      if (d.mode === "nw" || d.mode === "ne") y0 = clamp(s.fy + dy, 0, y1 - MIN_CROP_FRAC);
+      if (d.mode === "sw" || d.mode === "se") y1 = clamp(y1 + dy, y0 + MIN_CROP_FRAC, 1);
+      next = { fx: x0, fy: y0, fw: x1 - x0, fh: y1 - y0 };
+    }
+    onChange(next);
+  };
+
+  const onUp = () => {
+    if (!drag.current) return;
+    drag.current = null;
+    onCommit();
+  };
+
+  const handles: DragMode[] = ["nw", "ne", "sw", "se"];
+  return (
+    <div
+      className="ks-cam-crop"
+      style={{
+        left: `${rect.fx * 100}%`,
+        top: `${rect.fy * 100}%`,
+        width: `${rect.fw * 100}%`,
+        height: `${rect.fh * 100}%`,
+      }}
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      role="presentation"
+    >
+      {handles.map((h) => (
+        <span key={h} className={`ks-cam-handle is-${h}`} data-handle={h} />
+      ))}
+    </div>
+  );
+}
+
+function CameraMessage({
+  status,
+  onRetry,
+}: {
+  status: ReturnType<typeof useCameraCapture>["status"];
+  onRetry: () => void;
+}) {
+  const copy: Partial<Record<typeof status.kind, string>> = {
+    denied:
+      "Camera access was denied. Enable camera permission for this site in your browser settings, then retry.",
+    unsupported:
+      "The camera needs a secure (https) connection and a browser that supports camera capture.",
+    nocamera: "No camera was found on this device.",
+    idle: "Starting camera…",
+    requesting: "Requesting camera access…",
+  };
+  const message =
+    status.kind === "error"
+      ? `Camera error: ${status.message}`
+      : (copy[status.kind] ?? "Camera unavailable.");
+  const canRetry = status.kind === "denied" || status.kind === "error";
+  return (
+    <div className="ks-cam-msg ink-faint">
+      <p>{message}</p>
+      {canRetry && (
+        <Button variant="quiet" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// --- camera capture geometry --------------------------------------------- //
+
+/** Map a crop rectangle (fractions of the stage) to a crop of the
+ *  intrinsic-resolution frame, accounting for the still's object-fit: cover.
+ *  The frozen <img> uses the same cover fit as the live <video>, so the box the
+ *  user sees maps exactly to the pixels that get read. */
+function cropFromRect(
+  frame: HTMLCanvasElement,
+  stage: HTMLElement,
+  rect: CropRect,
+): ImageData | null {
+  const sw = stage.clientWidth;
+  const sh = stage.clientHeight;
+  const vw = frame.width;
+  const vh = frame.height;
+  if (!sw || !sh || !vw || !vh) return null;
+  // object-fit: cover → the larger scale fills the stage; the overflow is
+  // cropped equally on both sides. Invert that to find the visible region.
+  const scale = Math.max(sw / vw, sh / vh);
+  const visW = sw / scale;
+  const visH = sh / scale;
+  const visX = (vw - visW) / 2;
+  const visY = (vh - visH) / 2;
+  let cx = Math.round(visX + rect.fx * visW);
+  let cy = Math.round(visY + rect.fy * visH);
+  let cw = Math.round(rect.fw * visW);
+  let ch = Math.round(rect.fh * visH);
+  cx = Math.max(0, Math.min(cx, vw - 1));
+  cy = Math.max(0, Math.min(cy, vh - 1));
+  cw = Math.min(cw, vw - cx);
+  ch = Math.min(ch, vh - cy);
+  if (cw <= 0 || ch <= 0) return null;
+  const ctx = frame.getContext("2d", { willReadFrequently: true });
+  return ctx ? ctx.getImageData(cx, cy, cw, ch) : null;
 }
 
 

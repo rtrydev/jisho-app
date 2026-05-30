@@ -22,6 +22,12 @@ export type KanjiRecognizer = {
    *  the strokes are empty. Throws only if recognition itself fails — load
    *  errors surface through `status` instead. */
   recognize: (strokes: Stroke[], topK?: number) => Promise<Candidate[][]>;
+  /** Recognize already-segmented, already-normalized 96×96 cells (the camera
+   *  path — see imagePreprocess.ts). Returns top-K per cell, in order. */
+  recognizeImage: (
+    cells: Float32Array[],
+    topK?: number,
+  ) => Promise<Candidate[][]>;
 };
 
 export function useKanjiRecognizer(): KanjiRecognizer {
@@ -72,10 +78,22 @@ export function useKanjiRecognizer(): KanjiRecognizer {
     [],
   );
 
+  const runImage = useCallback(
+    async (cells: Float32Array[], topK = 8): Promise<Candidate[][]> => {
+      const client = clientRef.current;
+      if (!client || cells.length === 0) return [];
+      return client.recognizeImage(cells, topK);
+    },
+    [],
+  );
+
   // Memoize the returned shape so consumers can put `recognizer` straight in
   // a useEffect dep array without retriggering on every render. Without
   // this the returned object literal is a fresh reference each render,
   // which previously caused an infinite recognize/setState loop in callers
   // that depended on the whole recognizer.
-  return useMemo(() => ({ status, recognize: run }), [status, run]);
+  return useMemo(
+    () => ({ status, recognize: run, recognizeImage: runImage }),
+    [status, run, runImage],
+  );
 }

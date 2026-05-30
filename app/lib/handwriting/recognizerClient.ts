@@ -19,6 +19,10 @@ export type RecognizerProgress = (step: string, ratio: number) => void;
 export interface RecognizerClient {
   /** Segment + recognize a drawing; one Candidate[] per detected character. */
   recognize(strokes: Stroke[], topK: number): Promise<Candidate[][]>;
+  /** Recognize pre-segmented, pre-normalized 96×96 cells (the camera path —
+   *  segmentation already happened on the main thread); one Candidate[] per
+   *  cell, in order. */
+  recognizeImage(cells: Float32Array[], topK: number): Promise<Candidate[][]>;
   /** Tear down the worker (if any). Idempotent. */
   dispose(): void;
 }
@@ -52,6 +56,15 @@ function createMainThreadClient(onProgress?: RecognizerProgress): RecognizerHand
         resourcesPromise,
       ]);
       return recognizeMulti(strokes, resources, topK);
+    },
+    async recognizeImage(cells, topK) {
+      const [{ recognize }, resources] = await Promise.all([
+        import("./recognize"),
+        resourcesPromise,
+      ]);
+      const out: Candidate[][] = [];
+      for (const cell of cells) out.push(await recognize(resources, cell, topK));
+      return out;
     },
     dispose() {
       /* nothing to tear down on the main thread */
@@ -92,6 +105,14 @@ function createWorkerClient(onProgress?: RecognizerProgress): RecognizerHandle {
         const id = nextId++;
         pending.set(id, { resolve, reject });
         const req: WorkerRequest = { type: "recognize", id, strokes, topK };
+        worker.postMessage(req);
+      });
+    },
+    recognizeImage(cells, topK) {
+      return new Promise<Candidate[][]>((resolve, reject) => {
+        const id = nextId++;
+        pending.set(id, { resolve, reject });
+        const req: WorkerRequest = { type: "recognizeImage", id, cells, topK };
         worker.postMessage(req);
       });
     },
@@ -166,6 +187,7 @@ function createWorkerClient(onProgress?: RecognizerProgress): RecognizerHandle {
 
   const client: RecognizerClient = {
     recognize: (strokes, topK) => impl.recognize(strokes, topK),
+    recognizeImage: (cells, topK) => impl.recognizeImage(cells, topK),
     dispose: () => impl.dispose(),
   };
 

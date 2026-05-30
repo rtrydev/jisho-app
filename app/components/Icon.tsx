@@ -229,8 +229,24 @@ export const Overflow = (p: IconProps) => (
   </svg>
 );
 
+/** Camera body with a centered lens — the Kanji screen's Camera input mode
+ *  and its shutter trigger. Matches the outlined 1.4-weight style of the other
+ *  glyphs. */
+export const Camera = (p: IconProps) => (
+  <svg {...withDefaults(p)}>
+    <path
+      d="M4 8.5a2 2 0 0 1 2-2h1.2a1 1 0 0 0 .82-.43l.86-1.24a1 1 0 0 1 .82-.43h4.56a1 1 0 0 1 .82.43l.86 1.24a1 1 0 0 0 .82.43H18a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8.5Z"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <circle cx="12" cy="12.5" r="3.2" stroke="currentColor" strokeWidth="1.4" fill="none" />
+  </svg>
+);
+
 export const Icon = {
   Read, History, Favorites, Settings, Search, Close,
   Trash, Share, Copy, Collapse, Play, Check, ShareArrow, Heart,
-  Brush, Undo, Info, Kanji, Install, PlusSquare, Overflow,
+  Brush, Undo, Info, Kanji, Install, PlusSquare, Overflow, Camera,
 };

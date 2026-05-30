@@ -17,7 +17,9 @@
 // spawns this worker when OffscreenCanvas is supported).
 
 import { loadRecognizer, type RecognizerResources } from "./loader";
+import { recognize } from "./recognize";
 import { recognizeMulti } from "./recognizeMulti";
+import type { Candidate } from "./types";
 import type { WorkerRequest, WorkerResponse } from "./workerProtocol";
 
 // `self` is typed as the DOM `Window` under the project's `dom` lib; re-type the
@@ -60,6 +62,29 @@ ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       resourcesPromise ??= loadRecognizer();
       const resources = await resourcesPromise;
       const candidates = await recognizeMulti(msg.strokes, resources, msg.topK);
+      post({ type: "result", id: msg.id, candidates });
+    } catch (err) {
+      post({
+        type: "error",
+        id: msg.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
+  if (msg.type === "recognizeImage") {
+    try {
+      resourcesPromise ??= loadRecognizer();
+      const resources = await resourcesPromise;
+      // Cells arrive already segmented + normalized (imagePreprocess.ts), so we
+      // just run the single-character recognizer on each, in order. One
+      // Candidate[] per cell — the same shape recognizeMulti returns, so the
+      // camera path flows through the Draw-mode candidate UI unchanged.
+      const candidates: Candidate[][] = [];
+      for (const cell of msg.cells) {
+        candidates.push(await recognize(resources, cell, msg.topK));
+      }
       post({ type: "result", id: msg.id, candidates });
     } catch (err) {
       post({
