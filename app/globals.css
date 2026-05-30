@@ -2335,6 +2335,10 @@ button {
 }
 .ks-cam-shutter:disabled { opacity: 0.45; }
 
+/* btn-quiet isn't a flex container, so its leftIcon (a block-level <svg> under
+   Tailwind preflight) would stack above the label. Lay this one out as a row. */
+.ks-cam-retake { display: inline-flex; align-items: center; gap: 6px; }
+
 .ks-cam-hint { font-size: 12px; margin: 0; text-align: center; max-width: 320px; }
 
 /* ---- Radicals mode ---- */

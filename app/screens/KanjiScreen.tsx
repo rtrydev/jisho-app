@@ -761,7 +761,8 @@ function CameraPanel({
       <div className="ks-cam-actions">
         {phase === "captured" ? (
           <Button
-            variant="ghost"
+            variant="quiet"
+            className="ks-cam-retake"
             leftIcon={<Icon.Camera size={14} />}
             onClick={onRetake}
             aria-label="Retake photo"
