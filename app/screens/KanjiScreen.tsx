@@ -17,7 +17,6 @@
 //     so the lookup loop closes inside this one screen.
 
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -28,7 +27,7 @@ import {
   type RefObject,
 } from "react";
 import { Button } from "../components/Button";
-import { Eyebrow, Ornament } from "../components/Eyebrow";
+import { Eyebrow } from "../components/Eyebrow";
 import * as Icon from "../components/Icon";
 import { HandwritingCanvas } from "../components/HandwritingCanvas";
 import { KanjiCard } from "../components/KanjiCard";
@@ -407,17 +406,14 @@ export function KanjiScreen({
         )}
       </section>
 
-      {/* Candidate row — same primitive for all three modes. Draw mode can
-          show more than one group when multi-character segmentation fires;
-          groups are separated by an Ornament middot. */}
+      {/* Candidates — one horizontally-scrolling row per detected character.
+          Type/Radicals produce a single group (one row); Draw/Camera produce
+          one row per segmented character, stacked top-to-bottom. */}
       <section className="ks-candidates">
         {candidateGroups.length > 0 ? (
-          <div className="ks-candidate-row thin-scroll">
+          <div className="ks-candidate-groups">
             {candidateGroups.map((group, gi) => (
-              <Fragment key={gi}>
-                {gi > 0 && (
-                  <Ornament className="ks-candidate-divider">・</Ornament>
-                )}
+              <div className="ks-candidate-row thin-scroll" key={gi}>
                 {group.map((ch, i) => {
                   const score = isMulti
                     ? multiGroups[gi]?.find((c) => c.char === ch)?.score
@@ -436,7 +432,7 @@ export function KanjiScreen({
                     />
                   );
                 })}
-              </Fragment>
+              </div>
             ))}
           </div>
         ) : (

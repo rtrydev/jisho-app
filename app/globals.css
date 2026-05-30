@@ -2350,6 +2350,12 @@ button {
 .ks-candidates {
   min-height: 64px;
 }
+/* One row per detected character, stacked vertically. */
+.ks-candidate-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .ks-candidate-row {
   display: flex;
   gap: 6px;
@@ -2358,17 +2364,6 @@ button {
 }
 .ks-candidate-row::-webkit-scrollbar { height: 6px; }
 .ks-candidate-row::-webkit-scrollbar-thumb { background: var(--ink-ghost); border-radius: 999px; }
-
-/* Ornament reused as an inline group divider in the Draw-mode candidate
-   row. Drops the section-break margins, centers vertically against tiles. */
-.ks-candidate-row .ks-candidate-divider {
-  margin: 0;
-  align-self: center;
-  font-size: 18px;
-  letter-spacing: 0;
-  padding: 0 4px;
-  flex: 0 0 auto;
-}
 
 /* ---- Draw-mode word suggestions ---- */
 
