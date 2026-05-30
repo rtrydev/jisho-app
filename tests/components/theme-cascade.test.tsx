@@ -7,6 +7,7 @@ import { BreakdownChip } from "../../app/components/BreakdownChip";
 import { Ruby } from "../../app/components/Ruby";
 import {
   applySettingsToRoot,
+  applyStatusBarTheme,
   defaultSettings,
 } from "../../app/lib/settings";
 
@@ -121,5 +122,60 @@ describe("applySettingsToRoot mirrors settings to <html data-*>", () => {
     // jsdom's matchMedia stub returns matches=false, i.e. NOT dark.
     applySettingsToRoot({ ...defaultSettings(), theme: "system" });
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+});
+
+describe("applyStatusBarTheme pins the mobile status bar to the app theme", () => {
+  function clearThemeColorMetas() {
+    document
+      .querySelectorAll('meta[name="theme-color"]')
+      .forEach((m) => m.remove());
+    document.documentElement.style.colorScheme = "";
+  }
+
+  function seedOsKeyedMetas() {
+    clearThemeColorMetas();
+    for (const [media, content] of [
+      ["(prefers-color-scheme: light)", "#f3ede0"],
+      ["(prefers-color-scheme: dark)", "#161513"],
+    ]) {
+      const m = document.createElement("meta");
+      m.setAttribute("name", "theme-color");
+      m.setAttribute("media", media);
+      m.setAttribute("content", content);
+      document.head.appendChild(m);
+    }
+  }
+
+  it("collapses the OS-keyed pair into one media-less, app-themed tag (dark)", () => {
+    seedOsKeyedMetas();
+    applyStatusBarTheme("dark");
+    const metas = document.querySelectorAll('meta[name="theme-color"]');
+    expect(metas).toHaveLength(1);
+    expect(metas[0].getAttribute("media")).toBeNull();
+    expect(metas[0].getAttribute("content")).toBe("#161513");
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+  });
+
+  it("maps light and sepia to the paper color + light color-scheme", () => {
+    seedOsKeyedMetas();
+    applyStatusBarTheme("sepia");
+    expect(
+      document.querySelector('meta[name="theme-color"]')!.getAttribute("content"),
+    ).toBe("#f3ede0");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+
+    applyStatusBarTheme("light");
+    expect(
+      document.querySelector('meta[name="theme-color"]')!.getAttribute("content"),
+    ).toBe("#f3ede0");
+  });
+
+  it("creates the tag when none exists yet", () => {
+    clearThemeColorMetas();
+    applyStatusBarTheme("dark");
+    const metas = document.querySelectorAll('meta[name="theme-color"]');
+    expect(metas).toHaveLength(1);
+    expect(metas[0].getAttribute("content")).toBe("#161513");
   });
 });

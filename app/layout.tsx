@@ -66,6 +66,12 @@ export const viewport: Viewport = {
   // pre-CSS document background reasonable when the inline critical
   // CSS below is the only thing painting.
   colorScheme: "light dark",
+  // OS-keyed fallback for no-JS / SSR only. The pre-hydration script below
+  // (and applyStatusBarTheme on every settings change) collapses these into a
+  // single OS-agnostic `theme-color` that tracks the *app* theme — the saved
+  // `data-theme` can diverge from `prefers-color-scheme` (e.g. app dark on a
+  // light-mode phone), and these media-keyed tags would otherwise paint the
+  // status bar the wrong palette behind the loading splash.
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f3ede0" },
     { media: "(prefers-color-scheme: dark)", color: "#161513" },
@@ -96,11 +102,17 @@ body { background: inherit; color: inherit; margin: 0; }
 // the page would flash the SSR defaults (light + seal + always + M) on
 // every reload until SettingsProvider re-applied the saved settings.
 //
+// It also pins the mobile status bar to the resolved theme: it collapses the
+// OS-keyed `theme-color` metas into one OS-agnostic tag and sets
+// `color-scheme`, so the status bar can't flash light behind the dark splash
+// when the app theme differs from the phone's `prefers-color-scheme`. This is
+// the pre-paint twin of applyStatusBarTheme() in app/lib/settings.ts.
+//
 // The schema (storage key, payload envelope, value whitelists) is
 // duplicated from app/lib/settings.ts + app/lib/storage.ts because this
 // string is evaluated outside the React module graph. Keep them in
 // lockstep if either side ever changes.
-const SETTINGS_INIT_SCRIPT = `(function(){try{var raw=window.localStorage.getItem("jp:v2:settings");var theme="system",accent="seal",furigana="always",scale="M";if(raw){var p=JSON.parse(raw);if(p&&p.data&&typeof p.data==="object"){var d=p.data;if(d.theme==="light"||d.theme==="dark"||d.theme==="sepia"||d.theme==="system")theme=d.theme;if(d.accent==="seal"||d.accent==="indigo"||d.accent==="sumi")accent=d.accent;if(d.furiganaMode==="always"||d.furiganaMode==="hover"||d.furiganaMode==="off")furigana=d.furiganaMode;if(d.japaneseFontScale==="S"||d.japaneseFontScale==="M"||d.japaneseFontScale==="L")scale=d.japaneseFontScale;}}var resolved=theme;if(theme==="system"){resolved=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}var r=document.documentElement;r.dataset.theme=resolved;r.dataset.accent=accent;r.dataset.furigana=furigana;r.dataset.jpScale=scale;var isMobile=window.matchMedia&&window.matchMedia("(max-width: 820px)").matches;r.dataset.platform=isMobile?"mobile":"desktop";}catch(e){}})();`;
+const SETTINGS_INIT_SCRIPT = `(function(){try{var raw=window.localStorage.getItem("jp:v2:settings");var theme="system",accent="seal",furigana="always",scale="M";if(raw){var p=JSON.parse(raw);if(p&&p.data&&typeof p.data==="object"){var d=p.data;if(d.theme==="light"||d.theme==="dark"||d.theme==="sepia"||d.theme==="system")theme=d.theme;if(d.accent==="seal"||d.accent==="indigo"||d.accent==="sumi")accent=d.accent;if(d.furiganaMode==="always"||d.furiganaMode==="hover"||d.furiganaMode==="off")furigana=d.furiganaMode;if(d.japaneseFontScale==="S"||d.japaneseFontScale==="M"||d.japaneseFontScale==="L")scale=d.japaneseFontScale;}}var resolved=theme;if(theme==="system"){resolved=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}var r=document.documentElement;r.dataset.theme=resolved;r.dataset.accent=accent;r.dataset.furigana=furigana;r.dataset.jpScale=scale;var tc=resolved==="dark"?"#161513":"#f3ede0";var ms=document.querySelectorAll('meta[name="theme-color"]');for(var i=ms.length-1;i>=0;i--){if(i===0){ms[i].removeAttribute("media");}else{ms[i].parentNode.removeChild(ms[i]);}}var m=document.querySelector('meta[name="theme-color"]');if(!m){m=document.createElement("meta");m.setAttribute("name","theme-color");document.head.appendChild(m);}m.setAttribute("content",tc);r.style.colorScheme=resolved==="dark"?"dark":"light";var isMobile=window.matchMedia&&window.matchMedia("(max-width: 820px)").matches;r.dataset.platform=isMobile?"mobile":"desktop";}catch(e){}})();`;
 
 // Pre-app splash overlay — the parchment veil with a spinning ruled ring, the
 // vermilion 辞書 hanko, and "Loading dictionary…" that shows on cold load and

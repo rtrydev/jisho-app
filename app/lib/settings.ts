@@ -63,6 +63,42 @@ export const settingsStore: StoreConfig<Settings> = {
   migrate: (_v, raw) => coerce(raw),
 };
 
+/**
+ * Status-bar / `<meta name="theme-color">` color per resolved theme. Mirrors
+ * `--paper` for each palette (sepia has no palette of its own, so it falls back
+ * to the light value). Kept in lockstep with CRITICAL_CSS / SPLASH_STYLES in
+ * app/layout.tsx and the `--paper` tokens in app/globals.css.
+ */
+export const STATUS_BAR_COLOR = { light: "#f3ede0", dark: "#161513" } as const;
+
+/**
+ * Keep the mobile status bar in step with the *app* theme rather than the OS
+ * `prefers-color-scheme`. Next emits two media-keyed `theme-color` metas that
+ * track the OS preference, which drifts from the user's chosen `data-theme`
+ * (e.g. app dark on a light-mode phone) — the status bar would then flash the
+ * wrong palette behind the splash. We collapse those into a single OS-agnostic
+ * meta and pin `color-scheme` so UA chrome (iOS toolbar tint, scrollbars) tracks
+ * the app too. The pre-hydration twin of this lives in SETTINGS_INIT_SCRIPT.
+ */
+export function applyStatusBarTheme(resolvedTheme: "light" | "dark" | "sepia"): void {
+  if (typeof document === "undefined") return;
+  const color = resolvedTheme === "dark" ? STATUS_BAR_COLOR.dark : STATUS_BAR_COLOR.light;
+  const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
+  // Drop every existing tag (incl. the OS-keyed pair) and re-add exactly one.
+  metas.forEach((m, i) => {
+    if (i === 0) m.removeAttribute("media");
+    else m.remove();
+  });
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.setAttribute("name", "theme-color");
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute("content", color);
+  document.documentElement.style.colorScheme = resolvedTheme === "dark" ? "dark" : "light";
+}
+
 /** Theme tokens flow strictly one way: settings → root data-attrs → tokens. */
 export function applySettingsToRoot(s: Settings): void {
   if (typeof document === "undefined") return;
@@ -72,6 +108,7 @@ export function applySettingsToRoot(s: Settings): void {
   root.dataset.accent = s.accent;
   root.dataset.furigana = s.furiganaMode;
   root.dataset.jpScale = s.japaneseFontScale;
+  applyStatusBarTheme(resolvedTheme);
 }
 
 export function resolveSystemTheme(): "light" | "dark" {
