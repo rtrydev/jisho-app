@@ -17,6 +17,67 @@ function strokeCentroidX(stroke: Stroke): number {
   return stroke.length ? sum / stroke.length : 0;
 }
 
+// A real character break is never crossed by a stroke — the pen lifts between
+// characters. So a predicted boundary that a stroke *straddles* (extends well
+// past on BOTH sides) is splitting one wide character at an internal gap, not
+// separating two characters. This is the dominant Draw-mode over-segmentation
+// cause: the segmenter strip is height-normalized, so a wide-short single char
+// (一 二 三 王 工 五 皿 四 …) is stretched to several character-widths and the
+// model fires phantom internal boundaries. Vetoing stroke-crossed boundaries
+// only ever *merges*, so it can never under-segment genuine multi-character
+// input — there, each character's strokes stay on their own side of the break.
+//
+// The signal also resolves the case the segmenter alone can't: 二 (one wide
+// char, both horizontal strokes span the full width → every internal cut is
+// crossed → merged) vs 一一 (two chars, each stroke confined to its own half →
+// the cut between them is crossed by neither → kept).
+
+/** Straddle tolerance as a fraction of the drawing's height (≈ the em / line
+ *  height). A stroke must reach more than this past the cut on each side to
+ *  count as crossing it, so minor freehand overshoot into the gap is ignored. */
+const CROSS_TOL_FRAC = 0.15;
+
+/** Vertical extent of all ink (a character-size proxy). 0 when degenerate. */
+function drawingHeight(strokes: Stroke[]): number {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const s of strokes) {
+    for (const p of s) {
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return maxY > minY ? maxY - minY : 0;
+}
+
+/** True if any stroke reaches more than `tol` past `x` on both sides — i.e. it
+ *  crosses the boundary rather than merely ending near it. */
+function boundaryCrossedByStroke(strokes: Stroke[], x: number, tol: number): boolean {
+  for (const s of strokes) {
+    let left = false;
+    let right = false;
+    for (const p of s) {
+      if (p.x < x - tol) left = true;
+      else if (p.x > x + tol) right = true;
+      if (left && right) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Drop predicted boundaries that a stroke crosses (see the note above). Pure;
+ * `boundaries` and stroke coordinates share the drawing-pixel space.
+ */
+export function filterBoundariesByStrokes(
+  strokes: Stroke[],
+  boundaries: number[],
+): number[] {
+  if (boundaries.length === 0) return boundaries;
+  const tol = Math.max(1, CROSS_TOL_FRAC * drawingHeight(strokes));
+  return boundaries.filter((x) => !boundaryCrossedByStroke(strokes, x, tol));
+}
+
 /**
  * Group strokes into characters using boundary x-positions (drawing coords).
  *
@@ -31,7 +92,9 @@ export function splitStrokesByBoundaries(
 ): Stroke[][] {
   const live = strokes.filter((s) => s.length > 0);
   if (live.length === 0) return [];
-  const cuts = boundaries.slice().sort((a, b) => a - b);
+  // Discard boundaries that cut through a stroke before splitting — those are
+  // internal gaps of one wide character, not breaks between characters.
+  const cuts = filterBoundariesByStrokes(live, boundaries).sort((a, b) => a - b);
   if (cuts.length === 0) return [live];
 
   const groups: Stroke[][] = Array.from({ length: cuts.length + 1 }, () => []);

@@ -39,6 +39,7 @@ import { useIsMobile } from "../components/AppShell";
 import { useKanjiData } from "../lib/kanji/useKanjiData";
 import { useKanjiRecognizer } from "../lib/handwriting/useKanjiRecognizer";
 import { imageToCells, type ReadAxis } from "../lib/handwriting/imagePreprocess";
+import { filterGlyphGroups } from "../lib/handwriting/glyphConfidence";
 import { useCameraCapture, cameraSupported } from "../lib/camera/useCameraCapture";
 import { useAnalyzer } from "../providers/EngineProvider";
 import { useNav } from "../JishoApp";
@@ -683,6 +684,11 @@ function CameraPanel({
   const [axis, setAxis] = useState<ReadAxis>("h");
   const [phase, setPhase] = useState<"live" | "captured">("live");
   const [busy, setBusy] = useState(false);
+  // Number of characters the last read surfaced (null = not read yet). 0 after a
+  // capture means the text-presence gate found nothing in the box — surfaced as
+  // a distinct hint so a blank/garbage frame reads as "nothing here", not a
+  // silent empty row.
+  const [resultCount, setResultCount] = useState<number | null>(null);
   // The captured still is shown as the FULL frame at the same framing as the
   // live viewfinder (object-fit: cover), so the shot doesn't appear to zoom on
   // capture. The frame canvas is also kept in a ref so the crop can be re-read
@@ -729,8 +735,13 @@ function CameraPanel({
       if (!crop) return;
       setBusy(true);
       try {
+        // imageToCells already drops non-glyph cells (blank/blob); filterGlyphGroups
+        // then drops cells the recognizer couldn't read as any character. Whatever
+        // survives both is real text — an empty result means "no kanji in the box".
         const cells = imageToCells(crop, readAxis);
-        onResult(await recognizeImage(cells, TOP_K));
+        const groups = filterGlyphGroups(await recognizeImage(cells, TOP_K));
+        setResultCount(groups.length);
+        onResult(groups);
       } finally {
         setBusy(false);
       }
@@ -755,6 +766,7 @@ function CameraPanel({
     frameRef.current = null;
     setFrameUrl(null);
     onResult([]);
+    setResultCount(null);
     // Back to live: the stream effect re-acquires the camera.
     setPhase("live");
   }, [onResult]);
@@ -853,9 +865,11 @@ function CameraPanel({
       </div>
 
       <p className="ks-cam-hint ink-faint">
-        {phase === "captured"
-          ? "Drag the box to fine-tune what's read — it re-reads when you let go."
-          : "Frame a line of kanji inside the box and tap the shutter. Kana isn’t read — kanji only."}
+        {phase !== "captured"
+          ? "Frame a line of kanji inside the box and tap the shutter. Kana isn’t read — kanji only."
+          : !busy && resultCount === 0
+            ? "No kanji found in the box — reframe or drag the box over the writing, then it re-reads."
+            : "Drag the box to fine-tune what's read — it re-reads when you let go."}
       </p>
       {recognizerStatus.kind === "loading" && (
         <p className="ks-draw-status ink-faint">

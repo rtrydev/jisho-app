@@ -46,6 +46,23 @@ const LEAK_EDGE_FRAC = 0.5; // edge cell < 0.5× median extent → treat as a le
 const SEG_SNAP_FRAC = 0.05;
 const MAX_CROP_DIM = 1080; // downscale ceiling so the pixel ops stay cheap
 
+// Glyph-likeness gate (text-presence detection). The recognizer is kanji-only
+// with no garbage class and a low-magnitude softmax, so it confidently mis-reads
+// arbitrary photo regions; nothing downstream asks "is this even a character?".
+// These structural cutoffs reject the two dominant non-text inputs BEFORE
+// recognition, from the cell's own geometry rather than recognizer confidence:
+//   • near-empty cells (a speck of leftover noise), and
+//   • solid filled regions (a dark object / shadow / out-of-focus blob) — ink
+//     that fills most of a 2-D bounding box, unlike the sparse strokes of a
+//     glyph.
+// The 2-D guard is what spares legitimately solid-but-thin line kanji (一 二 三):
+// their ink bbox is a thin band, so the "fills its box" test only fires when the
+// box spans BOTH axes. Deliberately lenient — a missed blob is cheaper than
+// rejecting a real character.
+const GLYPH_MIN_INK_FRAC = 0.01; // < 1% of the cell is ink → nothing to read
+const GLYPH_MAX_FILL = 0.78; // ink fills > 78% of its bbox → a solid region
+const GLYPH_BLOB_MIN_DIM = 0.4; // ...only count that as a blob when the bbox spans ≥ 40% of BOTH axes
+
 // --------------------------------------------------------------------------- //
 // canvas helpers (prefer OffscreenCanvas; fall back for older Safari)
 // --------------------------------------------------------------------------- //
@@ -719,6 +736,44 @@ function normalizeCell(
 }
 
 // --------------------------------------------------------------------------- //
+// 7. glyph-likeness gate (text presence)
+// --------------------------------------------------------------------------- //
+
+/**
+ * Structural test for "this normalized cell holds a character, not a stray bit
+ * of a non-text photo". Pure (no canvas) — operates on a `size`×`size` ink map
+ * (ink=1/bg=0). Rejects near-empty cells and solid 2-D blobs; see the constant
+ * block above for the rationale and the line-kanji exception.
+ */
+export function looksLikeGlyph(cell: Float32Array, size = INPUT_SIZE): boolean {
+  let ink = 0;
+  let x0 = size;
+  let x1 = -1;
+  let y0 = size;
+  let y1 = -1;
+  for (let y = 0; y < size; y++) {
+    const row = y * size;
+    for (let x = 0; x < size; x++) {
+      if (cell[row + x] > INK_THRESH) {
+        ink++;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return false; // no ink at all
+  if (ink < GLYPH_MIN_INK_FRAC * size * size) return false; // basically empty
+  const bw = x1 - x0 + 1;
+  const bh = y1 - y0 + 1;
+  const fill = ink / (bw * bh);
+  const is2D = Math.min(bw, bh) >= GLYPH_BLOB_MIN_DIM * size;
+  if (is2D && fill > GLYPH_MAX_FILL) return false; // solid filled region, not strokes
+  return true;
+}
+
+// --------------------------------------------------------------------------- //
 // public entry point
 // --------------------------------------------------------------------------- //
 
@@ -761,7 +816,10 @@ export function imageToCells(
         ? { x0: bb.x0 + run.a, x1: bb.x0 + run.b, y0: bb.y0, y1: bb.y1 }
         : { x0: bb.x0, x1: bb.x1, y0: bb.y0 + run.a, y1: bb.y0 + run.b };
     const cell = normalizeCell(ink, w, region);
-    if (cell) cells.push(cell);
+    // Keep only cells that structurally read as a character — drops blank/blob
+    // cells from a non-text photo so the recognizer never fabricates a kanji
+    // from one (it has no garbage class to reject it itself).
+    if (cell && looksLikeGlyph(cell)) cells.push(cell);
   }
   return cells;
 }

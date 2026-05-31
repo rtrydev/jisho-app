@@ -1,12 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { splitStrokesByBoundaries } from "../../../app/lib/handwriting/segment";
+import {
+  filterBoundariesByStrokes,
+  splitStrokesByBoundaries,
+} from "../../../app/lib/handwriting/segment";
 import type { Stroke } from "../../../app/lib/handwriting/types";
 
-// A stroke is just a list of points; the splitter only looks at each stroke's
-// horizontal centroid relative to the boundary x-positions. Helper builds a
-// 1-point stroke at a given x (centroid = x) so assignment is unambiguous.
+// A stroke is just a list of points; the splitter looks at each stroke's
+// horizontal centroid relative to the boundary x-positions, after vetoing any
+// boundary a stroke crosses. Helper builds a 1-point stroke at a given x
+// (centroid = x; a single point can never straddle a boundary) so assignment is
+// unambiguous.
 function at(x: number): Stroke {
   return [{ x, y: 0 }];
+}
+
+/** A horizontal stroke from x0..x1 at height y (≥2 points so it has extent). */
+function hline(x0: number, x1: number, y: number): Stroke {
+  return [
+    { x: x0, y },
+    { x: x1, y },
+  ];
 }
 
 describe("splitStrokesByBoundaries", () => {
@@ -57,18 +70,63 @@ describe("splitStrokesByBoundaries", () => {
   });
 
   it("uses the mean x as the centroid for multi-point strokes", () => {
-    // A stroke whose points straddle the boundary but whose mean is left of it.
-    const straddling: Stroke = [
+    // A multi-point stroke confined to one side of the boundary is assigned as a
+    // unit by its mean x (here 65 < 80). It doesn't reach across the boundary,
+    // so the boundary survives the stroke-crossing veto.
+    const onesided: Stroke = [
       { x: 60, y: 0 },
-      { x: 90, y: 10 },
-    ]; // centroid x = 75
-    const out = splitStrokesByBoundaries([straddling, at(140)], [80]);
-    expect(out).toEqual([[straddling], [at(140)]]);
+      { x: 70, y: 10 },
+    ]; // centroid x = 65
+    const out = splitStrokesByBoundaries([onesided, at(140)], [80]);
+    expect(out).toEqual([[onesided], [at(140)]]);
   });
 
   it("ignores empty strokes", () => {
     const empty: Stroke = [];
     const out = splitStrokesByBoundaries([empty, at(10), at(200)], [100]);
     expect(out).toEqual([[at(10)], [at(200)]]);
+  });
+});
+
+describe("filterBoundariesByStrokes (stroke-crossing veto)", () => {
+  it("keeps boundaries that no stroke crosses", () => {
+    // 一一: two strokes, each confined to its own half; the gap between them is
+    // a real break crossed by neither.
+    const left = hline(0, 80, 0);
+    const right = hline(120, 200, 0);
+    expect(filterBoundariesByStrokes([left, right], [100])).toEqual([100]);
+  });
+
+  it("drops a boundary that a stroke spans on both sides", () => {
+    // 二: two full-width horizontal strokes; an internal cut is crossed by both.
+    const top = hline(0, 200, 0);
+    const bottom = hline(0, 200, 40);
+    expect(filterBoundariesByStrokes([top, bottom], [100])).toEqual([]);
+  });
+
+  it("drops every phantom boundary inside one wide character", () => {
+    const top = hline(0, 240, 0);
+    const bottom = hline(0, 240, 30);
+    expect(filterBoundariesByStrokes([top, bottom], [60, 120, 180])).toEqual([]);
+  });
+
+  it("tolerates minor overshoot into the gap (tol scales with height)", () => {
+    // The left char's stroke overshoots a few px past the break; the break still
+    // stands because the overshoot stays within tolerance.
+    // y-extent 0..40 → tol = 0.15 * 40 = 6, so boundary 80 has band 74..86.
+    const left: Stroke = [
+      { x: 0, y: 0 },
+      { x: 84, y: 40 },
+    ]; // reaches x=84 — past 80 but inside the 86 tolerance edge → not a cross
+    const right = hline(120, 200, 0);
+    expect(filterBoundariesByStrokes([left, right], [80])).toEqual([80]);
+  });
+
+  it("merges a wide character end-to-end through the splitter", () => {
+    const top = hline(0, 200, 0);
+    const bottom = hline(0, 200, 40);
+    const out = splitStrokesByBoundaries([top, bottom], [100]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual([top, bottom]);
   });
 });
