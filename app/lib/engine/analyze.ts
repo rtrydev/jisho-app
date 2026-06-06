@@ -5,10 +5,15 @@
 //   1. Tokenize the input via Kuromoji + IPADIC.
 //   2. Walk the token stream. At each position, try a 6-token grammar window —
 //      longest contiguous match in the grammar map wins.
-//   3. Otherwise treat the token as vocab: look up `basic_form` directly in
+//   3. Otherwise try a vocab-compound window: greedily merge adjacent *content*
+//      tokens into the longest surface concatenation that is itself a `words`
+//      headword (未 + 使用 → 未使用), so the JA-text path resolves a compound to
+//      the same single word the Draw/Camera matcher already does. The span
+//      never crosses a particle / auxiliary / symbol (see BOUNDARY_POS).
+//   4. Otherwise treat the token as vocab: look up `basic_form` directly in
 //      `words`; fall back through the kana→kanji `readings` index (first key
 //      wins — the build pipeline pre-sorts kanji forms by frequency).
-//   4. Dedupe to a card list. Vocab whose Japanese POS is in IGNORED_POS
+//   5. Dedupe to a card list. Vocab whose Japanese POS is in IGNORED_POS
 //      (helpers, particles, symbols, prefixes, fillers) is excluded from cards
 //      but still appears as a chip.
 
@@ -29,6 +34,25 @@ export const IGNORED_POS = new Set([
 ]);
 
 const GRAMMAR_WINDOW = 6;
+
+// Vocab-compound merge window. After the grammar window misses, the analyzer
+// greedily merges adjacent tokens into the LONGEST surface concatenation that
+// is itself a dictionary headword, so a compound kuromoji over-splits — 未使用
+// → 未(接頭詞)+使用(名詞), 携帯電話 → 携帯+電話, 自動販売機 → 自動+販売+機 —
+// surfaces as one vocab entity. This mirrors the Draw/Camera word matcher
+// (findWordCombinations), which already prefers the biggest dictionary word
+// spanning the recognised kanji; aligning the two means the same string
+// resolves to the same word on both screens.
+const VOCAB_WINDOW = 6;
+
+// POS a compound may never span. The merge joins only *content* morphemes — it
+// must not swallow a particle, an auxiliary / conjugation ending, a symbol or a
+// filler, or it would fuse genuine phrases the morphology intentionally split
+// (雨+が+降る, し+て, でしょ+う, 時+に). The Draw matcher gets this for free —
+// it only ever sees kanji, never a kana particle — so this set is what keeps
+// the JA-text path aligned with it. Broader at the boundary than IGNORED_POS:
+// 接頭詞 is excluded from cards yet is a legal compound member (未, 再, お…).
+const BOUNDARY_POS = new Set(["助詞", "助動詞", "記号", "フィラー"]);
 
 export type AnalysisResult = {
   text: string;
@@ -109,6 +133,41 @@ function classifyTokens(
         grammarData: match.entry,
       });
       i += match.count;
+      continue;
+    }
+    // Vocab compound window — greedily merge adjacent content tokens into the
+    // longest concatenation that is a real headword (see VOCAB_WINDOW). The
+    // loop breaks at the first boundary token, so the span never crosses a
+    // particle or conjugation ending. A single token finds nothing here and
+    // falls through to the per-token lookup below, which keeps its
+    // basic_form / readings-index resolution.
+    let compound:
+      | { count: number; surface: string; entry: import("./types").VocabEntry }
+      | null = null;
+    let vocabComposed = "";
+    for (let span = 0; span < VOCAB_WINDOW && i + span < tokens.length; span++) {
+      const t = tokens[i + span];
+      if (BOUNDARY_POS.has(t.pos)) break;
+      vocabComposed += t.surface_form;
+      if (span === 0) continue; // a compound needs at least two tokens
+      const entry = dictionary.words[vocabComposed];
+      if (entry) compound = { count: span + 1, surface: vocabComposed, entry };
+    }
+    if (compound) {
+      // Head-final: the last constituent carries the compound's POS. Guard the
+      // (practically impossible) case where it lands on an ignored POS so a
+      // real dictionary word never silently loses its card.
+      const headPos = tokens[i + compound.count - 1].pos;
+      out.push({
+        kind: "vocab",
+        surface: compound.surface,
+        baseForm: compound.surface,
+        pos: IGNORED_POS.has(headPos) ? "名詞" : headPos,
+        reading: compound.entry.r[0],
+        vocabData: compound.entry,
+        dictKey: compound.surface,
+      });
+      i += compound.count;
       continue;
     }
     const tok = tokens[i];

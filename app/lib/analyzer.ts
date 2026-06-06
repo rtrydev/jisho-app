@@ -2,10 +2,11 @@
 // into `app/lib/engine/` internals. The provider layer wraps `analyze` and
 // `loadEngineResources` behind a single React context (`useAnalyzer`).
 //
-// The engine itself is byte-for-byte the v1 logic — kuromoji morphology, a
-// 6-token grammar window, kana→kanji fallback, and an IGNORED_POS dedup
-// filter. The pipeline that produces dictionary.json.gz + grammar.json.gz is
-// the only thing that changed.
+// The engine is the v1 logic — kuromoji morphology, a 6-token grammar window,
+// kana→kanji fallback, and an IGNORED_POS dedup filter — plus a vocab-compound
+// window that merges adjacent content tokens into the longest dictionary
+// headword (未 + 使用 → 未使用), so the JA-text path resolves a compound to the
+// same single word the Draw/Camera matcher (findWordCombinations) does.
 
 import type { TermCardData } from "../components/TermCard";
 import { analyze as engineAnalyze, IGNORED_POS } from "./engine/analyze";
