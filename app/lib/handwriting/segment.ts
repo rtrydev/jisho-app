@@ -37,6 +37,26 @@ function strokeCentroidX(stroke: Stroke): number {
  *  count as crossing it, so minor freehand overshoot into the gap is ignored. */
 const CROSS_TOL_FRAC = 0.15;
 
+// Dakuten/handakuten merge veto (kana). A voiced kana (が ざ ぱ …) is its base
+// kana plus 2–3 *tiny* marks drawn at the upper-right. Those marks don't overlap
+// the base horizontally, so the stroke-crossing veto above can't merge them — the
+// segmenter can split them off as a phantom extra character. A real character is
+// never a tiny mark sitting high above the baseline, so a group that is *only*
+// small, high-positioned strokes is a dakuten and is merged into the character to
+// its left. Like the stroke-crossing veto this can ONLY merge, so it can't
+// under-segment genuine multi-character input. (Small kana っゃ are folded onto
+// their full forms and never reach here; bottom-sitting punctuation fails the
+// "high" test and is left alone.)
+/** A mark's bbox spans less than this fraction of the em on BOTH axes. */
+const MARK_MAX_DIM_FRAC = 0.34;
+/** ...and its lowest point stays within this fraction of the em from the top. */
+const MARK_TOP_FRAC = 0.55;
+/** Below this em (drawing-pixel) the line is too small for "mark vs character"
+ *  to mean anything — a stroke and a glyph are the same size — so the merge is
+ *  skipped. Real Draw input puts the em in the hundreds of px; this only fences
+ *  off degenerate/zero-extent geometry. */
+const MARK_MIN_EM = 24;
+
 /** Vertical extent of all ink (a character-size proxy). 0 when degenerate. */
 function drawingHeight(strokes: Stroke[]): number {
   let minY = Infinity;
@@ -78,13 +98,63 @@ export function filterBoundariesByStrokes(
   return boundaries.filter((x) => !boundaryCrossedByStroke(strokes, x, tol));
 }
 
+type GroupBounds = { minX: number; maxX: number; minY: number; maxY: number };
+
+function groupBounds(group: Stroke[]): GroupBounds {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const s of group) {
+    for (const p of s) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+/** True if `group` is a dakuten/handakuten-style mark cluster: small on both
+ *  axes relative to the em and sitting high (its lowest point is in the upper
+ *  part of the line, not down at the baseline). */
+function isMarkGroup(group: Stroke[], em: number, lineMinY: number): boolean {
+  const b = groupBounds(group);
+  if (b.maxX < b.minX) return false; // empty
+  const w = b.maxX - b.minX;
+  const h = b.maxY - b.minY;
+  if (w > MARK_MAX_DIM_FRAC * em || h > MARK_MAX_DIM_FRAC * em) return false;
+  return b.maxY - lineMinY <= MARK_TOP_FRAC * em;
+}
+
+/** Merge any dakuten-style mark group into the character to its left (see the
+ *  MARK_* note above). Groups are left-to-right; a dakuten always trails its base
+ *  kana, so it merges leftward. A leading mark (no left neighbour) is left as-is.
+ *  No-op when the em is degenerate (all ink on one horizontal line). */
+function mergeMarkGroups(groups: Stroke[][], all: Stroke[]): Stroke[][] {
+  if (groups.length < 2) return groups;
+  const em = drawingHeight(all);
+  if (em < MARK_MIN_EM) return groups;
+  let lineMinY = Infinity;
+  for (const s of all) for (const p of s) if (p.y < lineMinY) lineMinY = p.y;
+
+  const out: Stroke[][] = [];
+  for (const g of groups) {
+    if (out.length > 0 && isMarkGroup(g, em, lineMinY)) {
+      out[out.length - 1] = out[out.length - 1].concat(g);
+    } else {
+      out.push(g);
+    }
+  }
+  return out;
+}
+
 /**
  * Group strokes into characters using boundary x-positions (drawing coords).
  *
  * A stroke joins the character whose x-interval contains its centroid: the
  * count of boundaries to the left of the centroid is its character index.
  * Returns groups left-to-right, skipping any character interval that caught no
- * strokes. With no boundaries, all strokes form a single group.
+ * strokes. With no boundaries, all strokes form a single group. Finally, any
+ * dakuten-style mark group is merged into the character it belongs to.
  */
 export function splitStrokesByBoundaries(
   strokes: Stroke[],
@@ -104,5 +174,5 @@ export function splitStrokesByBoundaries(
     while (idx < cuts.length && cx >= cuts[idx]) idx++;
     groups[idx].push(stroke);
   }
-  return groups.filter((g) => g.length > 0);
+  return mergeMarkGroups(groups.filter((g) => g.length > 0), live);
 }

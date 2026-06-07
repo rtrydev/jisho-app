@@ -7,7 +7,7 @@ exposes only the few knobs you'd legitimately change between runs
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -68,6 +68,14 @@ class ClassPolicy:
     # everything seen at least once; 2 drops single-mention hapax kanji that
     # tend to bloat the class set without being practically useful.
     min_jmdict_occurrences: int = 1
+
+    # Append a curated hiragana + katakana block after the kanji (see
+    # classes.kana_classes). Off → the original kanji-only set. The kana block is
+    # appended *after* the frequency-sorted kanji, so enabling it leaves kanji
+    # class indices unchanged. Requires a retrain + a paired kanji-classes.json
+    # reship — a kana-inclusive class list against the old kanji-only model
+    # corrupts every prediction (see KANA_EXPANSION.md).
+    include_kana: bool = True
 
 
 @dataclass(frozen=True)
@@ -280,6 +288,15 @@ class SegmentPolicy:
     # single character at its internal gaps.
     count_weights: tuple[float, float, float, float] = (0.20, 0.34, 0.28, 0.18)
 
+    # Probability that a given strip glyph is drawn from the kana subset rather
+    # than uniformly over all classes. Real Japanese lines are ~half kana, but
+    # kana are only ~145/5599 classes, so uniform sampling would barely ever put
+    # a kana next to a kanji — and the segmenter would never learn the
+    # narrow-kana / kanji width alternation or that a voiced kana's dakuten stays
+    # in its cell. 0 disables (kanji-only behaviour); ignored when the class set
+    # has no kana.
+    kana_strip_frac: float = 0.45
+
     # Per-glyph size as a fraction of strip height (scaled by the larger of
     # w/h so aspect is preserved — 一 stays short-and-wide, 川 fills the cell).
     glyph_min_frac: float = 0.58
@@ -371,3 +388,51 @@ VAL_POLICY = SynthesisPolicy(
 )
 TRAIN_POLICY = TrainPolicy()
 EXPORT_POLICY = ExportPolicy()
+
+
+# --------------------------------------------------------------------------- #
+# Kana support
+# --------------------------------------------------------------------------- #
+
+
+def is_kana(ch: str) -> bool:
+    """True for a hiragana or katakana character (incl. the chōonpu ー).
+
+    Covers the full kana blocks (U+3040–U+30FF); the curated class set only
+    *uses* a subset (see classes.kana_classes), but any kana char tests True so
+    synthesis/diagnostics can branch on it cheaply.
+    """
+    if not ch:
+        return False
+    cp = ord(ch[0])
+    return 0x3040 <= cp <= 0x30FF
+
+
+def kana_render_policy(base: SynthesisPolicy) -> SynthesisPolicy:
+    """A gentler synthesis policy for kana glyphs.
+
+    Kana are few-stroke glyphs whose identity hinges on a single loop, tick, or
+    angle, and many pairs differ only by a dakuten's two small marks. The
+    kanji-tuned augmentation (elastic α=4, endpoint overshoot, stroke connection,
+    13° rotation, erosion) is strong enough to turn one kana into another
+    (ぬ→め, し→つ, ノ↔ソ↔ン↔シ↔ツ) or erase a dakuten — the same identity-preservation
+    concern that put ``p_drop_stroke`` at 0 for kanji, but sharper here. This caps
+    the identity-eroding knobs while keeping the sharpness-spectrum + freehand
+    realism that closed the synthetic→real gap.
+
+    Derived from ``base`` with ``min()`` so it dampens *both* the heavy training
+    policy (SYNTH_POLICY) and the lighter deployment proxy (VAL_POLICY) when each
+    is passed through it — train stays heavier than val, just both gentler on kana.
+    """
+    return replace(
+        base,
+        elastic_alpha=min(base.elastic_alpha, 2.5),
+        endpoint_overshoot_px=base.endpoint_overshoot_px * 0.5,
+        p_connect_strokes=base.p_connect_strokes * 0.4,
+        stroke_local_rotate_deg=min(base.stroke_local_rotate_deg, 3.0),
+        affine_rotate_deg=min(base.affine_rotate_deg, 8.0),
+        affine_shear_deg=min(base.affine_shear_deg, 6.0),
+        # Keep the two dakuten marks from blurring/eroding into nothing.
+        sharpness_jitter_max=min(base.sharpness_jitter_max, 1.0),
+        p_erode=0.0,
+    )

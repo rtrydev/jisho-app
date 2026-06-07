@@ -21,7 +21,14 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from .config import SEGMENT_POLICY, SYNTH_POLICY, SegmentPolicy, SynthesisPolicy
+from .config import (
+    SEGMENT_POLICY,
+    SYNTH_POLICY,
+    SegmentPolicy,
+    SynthesisPolicy,
+    is_kana,
+    kana_render_policy,
+)
 from .fonts import discover_japanese_fonts, rasterize_with_font
 from .kanjivg import has_strokes, rasterize_with_perturbation
 
@@ -52,12 +59,15 @@ def _render_glyph(
     policy: SynthesisPolicy,
 ) -> np.ndarray | None:
     """One perturbed glyph, cropped to its ink bbox (or None on failure)."""
+    # Kana render under the dampened, identity-preserving policy (same as the
+    # recognizer dataset) so strip glyphs match the recognizer's training look.
+    pol = kana_render_policy(policy) if is_kana(ch) else policy
     arr: np.ndarray | None = None
-    if has_kvg and rng.random() < policy.p_kanjivg:
-        arr = rasterize_with_perturbation(ch, RENDER_SIZE, rng=rng, policy=policy)
+    if has_kvg and rng.random() < pol.p_kanjivg:
+        arr = rasterize_with_perturbation(ch, RENDER_SIZE, rng=rng, policy=pol)
     if arr is None and fonts:
         fp, fi = fonts[rng.randrange(len(fonts))]
-        arr = rasterize_with_font(ch, fp, RENDER_SIZE, index=fi, rng=rng, policy=policy)
+        arr = rasterize_with_font(ch, fp, RENDER_SIZE, index=fi, rng=rng, policy=pol)
     if arr is None:
         return None
     return _crop_ink(arr)
@@ -71,11 +81,15 @@ def synthesize_strip(
     render_policy: SynthesisPolicy,
     seg: SegmentPolicy = SEGMENT_POLICY,
     chars: str | None = None,
+    kana_indices: list[int] | None = None,
 ) -> tuple[np.ndarray, list[float]] | None:
     """Returns (strip [H,W] float32 ink=1, boundary x-positions in px) or None.
 
     When ``chars`` is given, lays out exactly those characters (used by the
-    validation gate); otherwise picks a random 1–4 character line."""
+    validation gate); otherwise picks a random 1–4 character line. When
+    ``kana_indices`` is supplied, each random glyph is drawn from the kana subset
+    with probability ``seg.kana_strip_frac`` so strips mix scripts like real
+    text."""
     glyphs: list[np.ndarray] = []
     if chars is not None:
         for ch in chars:
@@ -88,7 +102,10 @@ def synthesize_strip(
         attempts = 0
         while len(glyphs) < n and attempts < n * 6:
             attempts += 1
-            ci = rng.randrange(len(classes))
+            if kana_indices and rng.random() < seg.kana_strip_frac:
+                ci = kana_indices[rng.randrange(len(kana_indices))]
+            else:
+                ci = rng.randrange(len(classes))
             g = _render_glyph(classes[ci], has_kvg[ci], fonts, rng, render_policy)
             if g is not None and g.shape[0] >= 2 and g.shape[1] >= 2:
                 glyphs.append(g)
@@ -228,6 +245,8 @@ class SegmentStripDataset(Dataset):
         self._epoch = 0
         self._fonts: list[tuple[Path, int]] = list(discover_japanese_fonts())
         self._has_kvg = [has_strokes(c) for c in classes]
+        # Indices of the kana classes, oversampled into strips (see kana_strip_frac).
+        self._kana_indices = [i for i, c in enumerate(classes) if is_kana(c)]
 
     def set_epoch(self, epoch: int) -> None:
         self._epoch = epoch
@@ -252,6 +271,7 @@ class SegmentStripDataset(Dataset):
                 self._fonts,
                 self.render_policy,
                 self.seg,
+                kana_indices=self._kana_indices,
             )
             if out is not None:
                 break

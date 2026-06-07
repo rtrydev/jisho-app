@@ -24,7 +24,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .augment import augment
-from .config import SYNTH_POLICY, SynthesisPolicy
+from .config import SYNTH_POLICY, SynthesisPolicy, is_kana, kana_render_policy
 from .fonts import discover_japanese_fonts, rasterize_with_font
 from .kanjivg import has_strokes, rasterize_with_perturbation
 
@@ -68,6 +68,11 @@ class SyntheticKanjiDataset(Dataset):
         self.base_seed = base_seed
         self.deterministic = deterministic
         self._policy = policy
+        # Gentler, identity-preserving variant for kana glyphs (see
+        # config.kana_render_policy). Precomputed once; chosen per-sample below.
+        self._kana_policy = kana_render_policy(policy)
+        # Which classes are kana — they render under the dampened policy.
+        self._is_kana: list[bool] = [is_kana(c) for c in classes]
         self._epoch = 0
 
         fonts = discover_japanese_fonts()
@@ -118,7 +123,9 @@ class SyntheticKanjiDataset(Dataset):
         # for this character, otherwise honor the configured mix.
         use_kvg = self._has_kvg[class_idx] and rng.random() < self._effective_p_kanjivg
 
-        pol = self._policy
+        # Kana render under the dampened policy so few-stroke shapes and dakuten
+        # marks keep their identity through augmentation.
+        pol = self._kana_policy if self._is_kana[class_idx] else self._policy
         arr: np.ndarray | None = None
         if use_kvg:
             arr = rasterize_with_perturbation(

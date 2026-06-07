@@ -55,6 +55,42 @@ def _in_jis_x_0208(ch: str) -> bool:
         return False
 
 
+# --------------------------------------------------------------------------- #
+# Kana class block
+# --------------------------------------------------------------------------- #
+#
+# Appended after the frequency-sorted kanji (so kanji class indices stay stable).
+# Gojūon (clear) + voiced + semi-voiced for both syllabaries, plus ゔ/ヴ and the
+# chōonpu ー.
+#
+# Small kana (ぁぃぅぇぉっゃゅょゎ / ァィゥェォッャュョヮ) are DELIBERATELY excluded:
+# the recognizer normalizes every glyph to fill the 96px input square, which
+# deletes absolute size — the only thing distinguishing っ from つ. So small kana
+# are folded onto their full-size class (a drawn small kana reads as its full
+# form; smallness is recovered downstream from the dictionary). Archaic kana
+# (ゐゑ / ヰヱ / ヷヸヹヺ / ヵヶ), iteration & voicing marks (ゝゞ / ヽヾ / ゛゜) and the
+# middot ・ are excluded as having no practical handwriting-lookup use.
+_HIRAGANA = (
+    "あいうえお" "かきくけこ" "さしすせそ" "たちつてと" "なにぬねの"
+    "はひふへほ" "まみむめも" "やゆよ" "らりるれろ" "わをん"
+    "がぎぐげご" "ざじずぜぞ" "だぢづでど" "ばびぶべぼ" "ぱぴぷぺぽ" "ゔ"
+)
+_KATAKANA = (
+    "アイウエオ" "カキクケコ" "サシスセソ" "タチツテト" "ナニヌネノ"
+    "ハヒフヘホ" "マミムメモ" "ヤユヨ" "ラリルレロ" "ワヲン"
+    "ガギグゲゴ" "ザジズゼゾ" "ダヂヅデド" "バビブベボ" "パピプペポ" "ヴー"
+)
+
+
+def kana_classes() -> list[str]:
+    """The curated kana class block, deterministically ordered by codepoint."""
+    return sorted(set(_HIRAGANA) | set(_KATAKANA), key=ord)
+
+
+def _is_kana(ch: str) -> bool:
+    return bool(ch) and 0x3040 <= ord(ch[0]) <= 0x30FF
+
+
 def _iter_kebs(jmdict_path) -> Iterator[str]:
     """Stream every ``<keb>`` text in JMdict with bounded memory."""
     with gzip.open(jmdict_path, "rb") as f:
@@ -103,19 +139,33 @@ def extract_classes() -> list[str]:
     if len(candidates) > CLASS_POLICY.max_classes:
         candidates = candidates[: CLASS_POLICY.max_classes]
 
-    return [ch for ch, _ in candidates]
+    classes = [ch for ch, _ in candidates]
+
+    # Append the curated kana block AFTER the kanji cap, so kanji indices stay
+    # stable and kana are never dropped by the cap. (Kana never appear in
+    # `candidates` — `_is_cjk_ideograph` excludes them from the JMdict mining.)
+    if CLASS_POLICY.include_kana:
+        seen = set(classes)
+        classes += [k for k in kana_classes() if k not in seen]
+
+    return classes
 
 
 def run(*, log_fn=print) -> list[str]:
     """CLI entry: extract, write to disk, print a small summary."""
     classes = extract_classes()
+    n_kana = sum(1 for c in classes if _is_kana(c))
+    n_kanji = len(classes) - n_kana
     CLASSES_OUT.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema": "kanji-classes/v1",
+        # v2 adds the appended kana block (kanji-only is v1). The model and this
+        # file are a matched pair — reship them together (see KANA_EXPANSION.md).
+        "schema": "kanji-classes/v2",
         "policy": {
             "restrict_to_jis_x_0208": CLASS_POLICY.restrict_to_jis_x_0208,
             "min_jmdict_occurrences": CLASS_POLICY.min_jmdict_occurrences,
             "max_classes": CLASS_POLICY.max_classes,
+            "include_kana": CLASS_POLICY.include_kana,
         },
         "count": len(classes),
         "classes": classes,
@@ -125,7 +175,7 @@ def run(*, log_fn=print) -> list[str]:
         encoding="utf-8",
     )
     log_fn(
-        f"wrote {len(classes):,} classes → "
+        f"wrote {len(classes):,} classes ({n_kanji:,} kanji + {n_kana} kana) → "
         f"{CLASSES_OUT.relative_to(CLASSES_OUT.parents[2])}"
     )
     return classes

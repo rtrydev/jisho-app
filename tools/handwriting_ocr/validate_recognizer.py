@@ -109,6 +109,12 @@ def _score(
             if arr is None:
                 continue
             p = model.prob_vec(arr)
+            # A baseline trained before the kana expansion has fewer outputs than
+            # the current class list has entries; its kana indices don't exist.
+            # Skip them so a kanji-only baseline can still be compared on kanji
+            # (and KANA-* rows simply report the candidate alone).
+            if gi >= p.shape[0]:
+                break
             confs.append(float(p[gi]))
             hits += int(int(p.argmax()) == gi)
             total += 1
@@ -168,7 +174,10 @@ def run(
         log_fn(f"  {name:>9}: {models[name].path}  (input {models[name].size}px)")
     log_fn(f"  samples/char={samples}  random classes={len(rand_chars)}\n")
 
-    # rows: (label, charset, condition-name)
+    # rows: (label, charset, condition-name). The KANA-* rows are no-ops on a
+    # kanji-only model (their kana chars aren't classes → skipped by _score), and
+    # light up once a kana-inclusive model is loaded. KANA-X mixes kana with the
+    # kanji they collide with, so even the old model reports the kanji half.
     rows = [
         ("random   ", rand_chars, "freehand"),
         ("random   ", rand_chars, "clean"),
@@ -176,6 +185,11 @@ def run(
         ("BOX      ", cluster_chars["box"], "freehand"),
         ("HOOK     ", cluster_chars["hook"], "clean"),
         ("HOOK     ", cluster_chars["hook"], "freehand"),
+        ("KANA-X   ", cluster_chars["kana_xscript"], "clean"),
+        ("KANA-X   ", cluster_chars["kana_xscript"], "freehand"),
+        ("KANA-DAK ", cluster_chars["kana_dakuten"], "clean"),
+        ("KANA-LOOP", cluster_chars["kana_loop"], "freehand"),
+        ("KANA-SHI ", cluster_chars["kana_shi"], "freehand"),
     ]
     for label, chars, cond in rows:
         pol = conds[cond]

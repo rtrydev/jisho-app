@@ -22,6 +22,14 @@ function hline(x0: number, x1: number, y: number): Stroke {
   ];
 }
 
+/** A 2-point stroke between two corners. */
+function seg(x0: number, y0: number, x1: number, y1: number): Stroke {
+  return [
+    { x: x0, y: y0 },
+    { x: x1, y: y1 },
+  ];
+}
+
 describe("splitStrokesByBoundaries", () => {
   it("returns an empty array for no strokes", () => {
     expect(splitStrokesByBoundaries([], [])).toEqual([]);
@@ -128,5 +136,46 @@ describe("filterBoundariesByStrokes (stroke-crossing veto)", () => {
     const out = splitStrokesByBoundaries([top, bottom], [100]);
     expect(out).toHaveLength(1);
     expect(out[0]).toEqual([top, bottom]);
+  });
+});
+
+describe("dakuten mark-merge veto (kana)", () => {
+  // em = drawing height = 100 in these cases (so MARK thresholds are 34 / 55 px).
+  it("merges a high, tiny mark group (dakuten) into the character on its left", () => {
+    // が: base kana spanning the full em on the left, two tiny marks up top-right.
+    const base1 = seg(0, 0, 40, 100);
+    const base2 = seg(10, 20, 50, 90);
+    const dakuten1 = seg(70, 0, 78, 8); // w8 h8, top of the line
+    const dakuten2 = seg(82, 2, 90, 10);
+    // The segmenter fires a phantom boundary between the body and the marks.
+    const out = splitStrokesByBoundaries(
+      [base1, base2, dakuten1, dakuten2],
+      [65],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toHaveLength(4); // all four strokes in one character
+  });
+
+  it("does NOT merge two full-height characters", () => {
+    const a = seg(0, 0, 60, 100);
+    const b = seg(120, 0, 180, 100);
+    const out = splitStrokesByBoundaries([a, b], [90]);
+    expect(out).toEqual([[a], [b]]);
+  });
+
+  it("does NOT merge a small mark sitting low at the baseline (punctuation)", () => {
+    // A tiny but LOW component fails the "high" test, so it stays its own group.
+    const a = seg(0, 0, 60, 100);
+    const low = seg(70, 88, 80, 98);
+    const out = splitStrokesByBoundaries([a, low], [65]);
+    expect(out).toEqual([[a], [low]]);
+  });
+
+  it("does NOT merge a wide trailing stroke (chōonpu ー)", () => {
+    // ー is mark-height but spans far more than MARK_MAX_DIM_FRAC of the em wide.
+    const a = seg(0, 0, 60, 100);
+    const choon = hline(80, 180, 40);
+    const out = splitStrokesByBoundaries([a, choon], [70]);
+    expect(out).toEqual([[a], [choon]]);
   });
 });

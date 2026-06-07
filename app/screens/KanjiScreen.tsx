@@ -74,6 +74,14 @@ function isCjk(ch: string): boolean {
   return (cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf);
 }
 
+/** True for a hiragana or katakana character (incl. the chōonpu ー). The
+ *  recognizer now emits kana; the screen routes them to Read rather than to a
+ *  KanjiCard (kana have no kanji-info entry). */
+function isKana(ch: string): boolean {
+  const cp = ch.codePointAt(0) ?? 0;
+  return cp >= 0x3040 && cp <= 0x30ff;
+}
+
 /** Extract distinct CJK ideographs from input, preserving first-seen order. */
 function extractKanji(text: string): string[] {
   const seen = new Set<string>();
@@ -400,9 +408,9 @@ export function KanjiScreen({
     mode === "type"
       ? "Type or paste a kanji above — every CJK character in the field becomes a candidate."
       : mode === "draw"
-        ? "Draw a kanji in the box above — candidates appear as you complete each stroke."
+        ? "Draw a character in the box above — kanji and kana are read; candidates appear as you complete each stroke."
         : mode === "camera"
-          ? "Capture a line of kanji with the camera above — candidates appear after the shot. Kana isn't read."
+          ? "Capture a line of text with the camera above — candidates appear after the shot. Mixed kana+kanji opens in Read."
           : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out.";
 
   // The Camera segment only appears on mobile with a usable camera; everything
@@ -424,6 +432,19 @@ export function KanjiScreen({
         onCopy={() => copyChar(entry.char)}
         onRadicalClick={onRadicalSearch}
       />
+    ) : isKana(entry.char) ? (
+      // Kana are recognized but aren't kanji — there's no KanjiCard for them, so
+      // send the user to Read, which analyses kana in context.
+      <p key={entry.key} className="ks-empty ink-faint">
+        <span className="jp">{entry.char}</span> is kana —{" "}
+        <Button
+          variant="quiet"
+          onClick={() => openInRead(entry.char)}
+          aria-label={`Look up ${entry.char} in Read`}
+        >
+          look it up in Read
+        </Button>
+      </p>
     ) : (
       <p key={entry.key} className="ks-empty ink-faint">
         <span className="jp">{entry.char}</span> is outside the shipped class set
@@ -538,6 +559,30 @@ export function KanjiScreen({
           </div>
         </section>
       )}
+
+      {/* Whole-line reading — Draw/Camera can now detect kana, so a mixed
+          kana+kanji capture is real text. Offer to open the assembled string in
+          Read (full morphological breakdown), which the per-kanji cards can't
+          give. Gated on the string actually containing kana so the kanji-only
+          flow keeps relying on the Words suggestions above. */}
+      {isMulti &&
+        inputString.length >= 2 &&
+        [...inputString].some(isKana) && (
+          <section className="ks-word-suggestions">
+            <Eyebrow>Reading</Eyebrow>
+            <div className="ks-word-row thin-scroll">
+              <Button
+                variant="quiet"
+                className="ks-word-tile"
+                onClick={() => openInRead(inputString)}
+                aria-label={`Open ${inputString} in Read`}
+              >
+                <span className="ks-word-headword jp">{inputString}</span>
+                <span className="ks-word-gloss">Open in Read</span>
+              </Button>
+            </div>
+          </section>
+        )}
 
       {/* Detail — when no candidates exist, the candidate-row section above
           already carries the loading/error/mode hint, so this section

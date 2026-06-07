@@ -45,6 +45,24 @@ describe("looksLikeGlyph (structural text-presence gate)", () => {
     // on one axis, so the "solid blob" test doesn't fire.
     expect(looksLikeGlyph(cellWithRect(8, 89, 46, 50))).toBe(true);
   });
+
+  it("accepts the chōonpu ー and thin vertical kana strokes (one-axis bands)", () => {
+    expect(looksLikeGlyph(cellWithRect(8, 89, 46, 50))).toBe(true); // ー (horizontal)
+    expect(looksLikeGlyph(cellWithRect(46, 50, 8, 89))).toBe(true); // | (vertical)
+  });
+
+  it("accepts a sparse diagonal kana stroke (し / ノ)", () => {
+    // A single ~4px-wide diagonal band corner-to-corner: spans both axes but
+    // fills only a few percent of its bbox, so it's neither empty nor a blob.
+    const c = new Float32Array(SIZE * SIZE);
+    for (let t = 8; t < 88; t++) {
+      for (let w = -2; w < 2; w++) {
+        const x = t + w;
+        if (x >= 0 && x < SIZE) c[t * SIZE + x] = 1;
+      }
+    }
+    expect(looksLikeGlyph(c)).toBe(true);
+  });
 });
 
 describe("glyphConfidence (recognizer-side text-presence gate)", () => {

@@ -64,6 +64,15 @@ CONDITIONS_HELP = {
 CONFUSION_CLUSTERS: dict[str, str] = {
     "box": "日目曰田旦円口囗",
     "hook": "己已巳弓戸",
+    # Kana clusters (added with the kana class expansion — KANA_EXPANSION.md).
+    # These are the kana-specific weak spots: cross-script homoglyphs that collide
+    # with an existing kanji class (irreducible in isolation), dakuten
+    # discrimination (か/が…), and the loopy / few-stroke hiragana + シ-family
+    # confusables. Tracked run-to-run exactly like box/hook.
+    "kana_xscript": "ロ口カ力エ工ニ二ハ八タ夕へヘ",
+    "kana_dakuten": "かがきぎくぐけげこご",
+    "kana_loop": "きさちらぬめわねれるろ",
+    "kana_shi": "シツソンノ",
 }
 
 
