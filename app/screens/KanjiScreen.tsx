@@ -307,8 +307,20 @@ export function KanjiScreen({
   // only need to gate the React work by mode here.
   const wordSuggestions = useMemo(() => {
     if (!isMulti) return [];
-    return suggestWordCombinations(multiGroups);
-  }, [isMulti, multiGroups, suggestWordCombinations]);
+    // Reflect manual corrections. When the user has explicitly picked a
+    // candidate for a position (`groupSelections[gi]`), lock that position to
+    // the chosen character — treated as certain (score 1) — so the suggested
+    // words honour the correction even when the picked character ranked outside
+    // the per-position limit the raw model candidates feed into the lookup (the
+    // candidate ribbon shows the top 12, but combination search only uses the
+    // top few). Positions the user hasn't corrected keep their full candidate
+    // list, so the search can still explore non-top-1 combinations there.
+    const slots = multiGroups.map((g, gi) => {
+      const pick = groupSelections[gi];
+      return pick ? [{ char: pick, score: 1 }] : g;
+    });
+    return suggestWordCombinations(slots);
+  }, [isMulti, multiGroups, groupSelections, suggestWordCombinations]);
 
   // ----- Radical click-through from KanjiCard ----------------------- //
 

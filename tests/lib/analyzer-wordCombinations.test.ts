@@ -111,6 +111,34 @@ describe("findWordCombinations", () => {
     expect(heads).toEqual(["漢字"]);
   });
 
+  it("honours a user correction (locked single-char slot) even when that char ranked outside perPositionLimit", () => {
+    // KanjiScreen passes a one-element slot for a position the user explicitly
+    // picked. The chosen character (字) sits at rank 6 in the raw recognizer
+    // candidates — outside the default perPositionLimit of 5 — so the uncorrected
+    // search can't reach 漢字...
+    const rawSecondSlot = slot(
+      ["一", 0.5],
+      ["二", 0.4],
+      ["三", 0.3],
+      ["四", 0.2],
+      ["五", 0.1],
+      ["字", 0.05], // the real character, buried at rank 6
+    );
+    const uncorrected = findWordCombinations(resources, [
+      slot(["漢", 0.9]),
+      rawSecondSlot,
+    ]);
+    expect(uncorrected.map((s) => s.headword)).not.toContain("漢字");
+
+    // ...but once the user selects 字, that position is locked to it (score 1),
+    // and 漢字 surfaces regardless of where it had ranked.
+    const corrected = findWordCombinations(resources, [
+      slot(["漢", 0.9]),
+      slot(["字", 1]),
+    ]);
+    expect(corrected.map((s) => s.headword)).toContain("漢字");
+  });
+
   it("recovers a 2-char word from a contiguous sub-span when an extra group is detected", () => {
     // Segmentation over-detected: a 2-kanji compound (漢字) came back as three
     // groups, the third being unrelated. The full 3-char concatenation isn't a
