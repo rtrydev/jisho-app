@@ -131,6 +131,76 @@ describe("segmentGrid — multi-line", () => {
   });
 });
 
+describe("segmentGrid — sliced-line repair (square-em test)", () => {
+  it("keeps a lone 三-like glyph whole (full-width internal gaps)", () => {
+    // Three full-width bars: the cross-axis valley cut sees two "line gaps"
+    // inside the glyph. The repair pass must merge the stripes back into one
+    // line so the glyph segments as ONE character.
+    const bars = [rect(20, 80, 20, 32), rect(20, 80, 44, 56), rect(20, 80, 68, 80)];
+    const { regions } = run(100, 100, bars, "h");
+    expect(regions).toHaveLength(1);
+    bars.forEach((b) => expect(covers(regions[0], b)).toBe(true));
+  });
+
+  it("keeps a lone こ-like glyph whole (two stacked components)", () => {
+    const top = rect(25, 75, 20, 30);
+    const bottom = rect(20, 80, 45, 80);
+    const { regions } = run(100, 100, [top, bottom], "h");
+    expect(regions).toHaveLength(1);
+    expect(covers(regions[0], top)).toBe(true);
+    expect(covers(regions[0], bottom)).toBe(true);
+  });
+
+  it("keeps a lone 川-like glyph whole on the vertical axis", () => {
+    // Three vertical strokes: on the v axis the column cut slices between
+    // them; the transposed square-em test must merge the columns back.
+    const strokes = [rect(20, 28, 20, 80), rect(44, 52, 20, 80), rect(68, 76, 20, 80)];
+    const { regions } = run(100, 100, strokes, "v");
+    expect(regions).toHaveLength(1);
+    strokes.forEach((s) => expect(covers(regions[0], s)).toBe(true));
+  });
+
+  it("does NOT merge two genuinely separate lines", () => {
+    // Two real lines of square glyphs: cells are already ~square, so the
+    // repair pass must leave them alone (a merge would make cells taller
+    // than wide and is rejected).
+    const line1 = [rect(20, 80, 20, 80), rect(110, 170, 20, 80)];
+    const line2 = [rect(20, 80, 110, 170), rect(110, 170, 110, 170)];
+    const { regions } = run(200, 190, [...line1, ...line2], "h");
+    expect(regions).toHaveLength(4);
+  });
+});
+
+describe("segmentGrid — furigana filter", () => {
+  it("drops a furigana row hugging a horizontal line", () => {
+    // Main line: two 60px kanji. Above it, tight to the line, a row of small
+    // square kana blobs (the furigana). The furigana band must be dropped,
+    // not read as standalone characters.
+    const main = [rect(20, 80, 40, 100), rect(110, 170, 40, 100)];
+    const furigana = [
+      rect(25, 35, 16, 28),
+      rect(45, 55, 16, 28),
+      rect(115, 125, 16, 28),
+      rect(135, 145, 16, 28),
+    ];
+    const { regions } = run(200, 120, [...main, ...furigana], "h");
+    expect(regions).toHaveLength(2);
+    main.forEach((g, i) => expect(covers(regions[i], g)).toBe(true));
+    for (const region of regions) {
+      expect(region.y0).toBeGreaterThanOrEqual(40);
+    }
+  });
+
+  it("keeps a small standalone line at normal leading (not furigana)", () => {
+    // A half-height line separated by a full line-gap: legitimate small text,
+    // must survive the furigana filter (it doesn't hug the big line).
+    const main = [rect(20, 80, 20, 80), rect(110, 170, 20, 80)];
+    const small = [rect(20, 50, 130, 160), rect(60, 90, 130, 160)];
+    const { regions } = run(200, 200, [...main, ...small], "h");
+    expect(regions).toHaveLength(4);
+  });
+});
+
 describe("segmentGrid — junk pruning", () => {
   it("prunes glyph-relative specks (between lines and beside characters)", () => {
     const g1 = rect(20, 80, 20, 80);

@@ -140,12 +140,19 @@ export type WordCombinationSlot = ReadonlyArray<{
  *  count would then miss the real word even when both its characters are the
  *  top-1 of adjacent slots. Scanning sub-spans recovers those.
  *
- *  Bounded combinatorial work: for S slots there are O(S²) contiguous runs,
- *  each doing ≤ `perPositionLimit ** runLength` O(1) hash lookups. With the
- *  defaults and the 2–4 slots Draw mode produces this stays in the low
- *  thousands of lookups. Returns an empty array when fewer than two slots are
- *  supplied, or when any position's top candidate sits below `minTopScore` —
- *  both signal there is nothing meaningful to suggest. */
+ *  Bounded combinatorial work: runs are capped at `maxRunLength` slots, so S
+ *  slots cost O(S × perPositionLimit^maxRunLength) hash lookups — with the
+ *  defaults ≈ 4k per start position, milliseconds even at the camera path's
+ *  40-character ceiling. The cap is load-bearing, not cosmetic: runs used to
+ *  extend to the end of the slot list, which is exponential in TOTAL slot
+ *  count — fine for the 2–4 slots Draw produces (the original caller), but a
+ *  15-character multi-line camera capture meant 5¹⁵ ≈ 30 billion candidate
+ *  products materialised on the main thread, which is what actually killed
+ *  the tab on phones. Dictionary compounds longer than 5 characters are
+ *  vanishingly rare, so the cap costs essentially no recall. Returns an empty
+ *  array when fewer than two slots are supplied, or when any position's top
+ *  candidate sits below `minTopScore` — both signal there is nothing
+ *  meaningful to suggest. */
 export function findWordCombinations(
   resources: EngineResources,
   slots: ReadonlyArray<WordCombinationSlot>,
@@ -153,10 +160,12 @@ export function findWordCombinations(
     perPositionLimit?: number;
     resultLimit?: number;
     minTopScore?: number;
+    maxRunLength?: number;
   },
 ): WordSuggestion[] {
   const perPos = options?.perPositionLimit ?? 5;
   const resultLimit = options?.resultLimit ?? 6;
+  const maxRun = Math.max(2, options?.maxRunLength ?? 5);
   // Floor below which a slot's top candidate is treated as "the recognizer is
   // not really sure here" and word lookup is skipped. The handwriting
   // recognizer's softmax is low-magnitude — a confidently-recognized character
@@ -181,7 +190,8 @@ export function findWordCombinations(
   const best = new Map<string, WordSuggestion>();
   for (let start = 0; start < trimmed.length; start++) {
     let combos: Combo[] = [{ chars: "", score: 1 }];
-    for (let end = start + 1; end <= trimmed.length; end++) {
+    const lastEnd = Math.min(trimmed.length, start + maxRun);
+    for (let end = start + 1; end <= lastEnd; end++) {
       const next: Combo[] = [];
       for (const c of combos) {
         for (const cand of trimmed[end - 1]) {
@@ -221,30 +231,64 @@ export function findWordCombinations(
   return matches.slice(0, resultLimit);
 }
 
-/** Find dictionary entries whose headword contains the given kanji,
- *  ordered by descending frequency. Pure scan — runs in ~30–80ms on a
- *  ~217k-key dictionary, called once when a KanjiCard mounts. */
+/** Find dictionary entries containing each of the given kanji, ordered by
+ *  descending frequency, in ONE pass over the dictionary. The scan is the
+ *  cost (~217k headwords); doing it once for N characters instead of N times
+ *  is what keeps a multi-character camera capture from spending seconds of
+ *  main-thread time building its detail cards. */
+export function findWordsContainingKanjiMany(
+  resources: EngineResources,
+  chars: ReadonlyArray<string>,
+  limit = 8,
+): Map<string, KanjiWordExample[]> {
+  type Match = { headword: string; freq: number; entry: import("./engine/types").VocabEntry };
+  const out = new Map<string, KanjiWordExample[]>();
+  const want = new Set(chars.filter((c) => c.length > 0));
+  if (want.size === 0) return out;
+  const words = resources.dictionary.words;
+  const buckets = new Map<string, Match[]>();
+  // `for..in` rather than Object.entries: the latter materialises a ~217k
+  // tuple array per call, pure allocation churn at this size.
+  for (const headword in words) {
+    let counted: Set<string> | null = null; // dedupe repeated chars (人々…)
+    for (const ch of headword) {
+      if (!want.has(ch) || counted?.has(ch)) continue;
+      (counted ??= new Set()).add(ch);
+      const entry = words[headword];
+      let bucket = buckets.get(ch);
+      if (!bucket) buckets.set(ch, (bucket = []));
+      bucket.push({ headword, freq: entry.f ?? 0, entry });
+    }
+  }
+  for (const ch of want) {
+    const matches = buckets.get(ch) ?? [];
+    // Sort by frequency desc, then headword length asc (shorter compounds
+    // tend to be more recognizable for the at-a-glance preview).
+    matches.sort((a, b) => {
+      if (b.freq !== a.freq) return b.freq - a.freq;
+      return a.headword.length - b.headword.length;
+    });
+    out.set(
+      ch,
+      matches.slice(0, limit).map(({ headword, freq, entry }) => ({
+        headword,
+        reading: entry.r[0],
+        gloss: entry.s[0]?.glosses[0] ?? "",
+        freq,
+      })),
+    );
+  }
+  return out;
+}
+
+/** Single-character convenience over findWordsContainingKanjiMany — same
+ *  semantics, same full-scan cost. Callers with several characters in hand
+ *  (the Kanji screen's detail cards) must use the batch form instead. */
 export function findWordsContainingKanji(
   resources: EngineResources,
   char: string,
   limit = 8,
 ): KanjiWordExample[] {
   if (!char) return [];
-  const matches: Array<{ headword: string; freq: number; entry: import("./engine/types").VocabEntry }> = [];
-  for (const [headword, entry] of Object.entries(resources.dictionary.words)) {
-    if (!headword.includes(char)) continue;
-    matches.push({ headword, freq: entry.f ?? 0, entry });
-  }
-  // Sort by frequency desc, then headword length asc (shorter compounds
-  // tend to be more recognizable for the at-a-glance preview).
-  matches.sort((a, b) => {
-    if (b.freq !== a.freq) return b.freq - a.freq;
-    return a.headword.length - b.headword.length;
-  });
-  return matches.slice(0, limit).map(({ headword, freq, entry }) => ({
-    headword,
-    reading: entry.r[0],
-    gloss: entry.s[0]?.glosses[0] ?? "",
-    freq,
-  }));
+  return findWordsContainingKanjiMany(resources, [char], limit).get(char) ?? [];
 }

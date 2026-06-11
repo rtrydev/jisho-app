@@ -38,7 +38,7 @@ import { TextField } from "../components/TextField";
 import { useIsMobile } from "../components/AppShell";
 import { useKanjiData } from "../lib/kanji/useKanjiData";
 import { useKanjiRecognizer } from "../lib/handwriting/useKanjiRecognizer";
-import { imageToCells, type ReadAxis } from "../lib/handwriting/imagePreprocess";
+import type { ReadAxis } from "../lib/handwriting/imagePreprocess";
 import { filterGlyphGroups } from "../lib/handwriting/glyphConfidence";
 import { useCameraCapture, cameraSupported } from "../lib/camera/useCameraCapture";
 import { useAnalyzer } from "../providers/EngineProvider";
@@ -57,6 +57,11 @@ const GUIDE_BOX: Record<ReadAxis, { fx: number; fy: number; fw: number; fh: numb
   h: { fx: 0.07, fy: 0.33, fw: 0.86, fh: 0.34 },
   v: { fx: 0.33, fy: 0.07, fw: 0.34, fh: 0.86 },
 };
+
+// Long-side cap for the captured-still PREVIEW canvas (display only — the
+// recognition crop always reads the full-resolution frame). Sized above any
+// phone stage at 3× DPR.
+const STILL_MAX_DIM = 1600;
 
 // ONNX inference runs in a dedicated Web Worker (see lib/handwriting/
 // recognizerClient.ts → recognizer.worker.ts), so the forward passes no longer
@@ -112,7 +117,7 @@ export function KanjiScreen({
 }) {
   const kanji = useKanjiData();
   const recognizer = useKanjiRecognizer();
-  const { findKanjiExamples, suggestWordCombinations } = useAnalyzer();
+  const { findKanjiExamplesMany, suggestWordCombinations } = useAnalyzer();
   const { openInRead } = useNav();
 
   const [mode, setMode] = useState<Mode>(initialChar ? "type" : "type");
@@ -301,10 +306,11 @@ export function KanjiScreen({
 
   // ----- Draw mode: word combinations from the per-position candidates -- //
   //
-  // The combinatorial work is bounded (perPositionLimit^groups ≤ 125 by
-  // default) so this is cheap to run on every stroke change. Gated to draw
-  // mode + ≥2 detected character groups in the engine helper itself, so we
-  // only need to gate the React work by mode here.
+  // The combinatorial work is bounded by the engine helper's run-length cap
+  // (O(groups × perPositionLimit^maxRunLength) — see findWordCombinations),
+  // so this stays milliseconds even at the camera path's 40-character
+  // ceiling. Gated to ≥2 detected character groups in the engine helper
+  // itself, so we only need to gate the React work by mode here.
   const wordSuggestions = useMemo(() => {
     if (!isMulti) return [];
     // Reflect manual corrections. When the user has explicitly picked a
@@ -348,6 +354,19 @@ export function KanjiScreen({
     return selected ? [selected] : [];
   }, [mode, isMulti, typeCandidates, groupHighlights, selected]);
 
+  // One dictionary scan for ALL cards (plus the provider's cache), not one
+  // per character — N single-char lookups are N full ~217k-key scans, which
+  // at 10+ detected camera characters was seconds of main-thread work per
+  // candidate change.
+  const kanjiExampleMap = useMemo(
+    () =>
+      findKanjiExamplesMany(
+        detailChars.filter((c) => !!kanji.resources?.kanji[c]),
+        10,
+      ),
+    [detailChars, kanji.resources, findKanjiExamplesMany],
+  );
+
   const detailEntries = useMemo(
     () =>
       detailChars.map((char, i) => {
@@ -357,9 +376,14 @@ export function KanjiScreen({
         // Draw/Camera key by position (`g${i}`) since two detected positions
         // can hold the same character.
         const key = isMulti ? `g${i}` : char;
-        return { key, char, info, examples: info ? findKanjiExamples(char, 10) : [] };
+        return {
+          key,
+          char,
+          info,
+          examples: info ? (kanjiExampleMap.get(char) ?? []) : [],
+        };
       }),
-    [detailChars, isMulti, kanji.resources, findKanjiExamples],
+    [detailChars, isMulti, kanji.resources, kanjiExampleMap],
   );
 
   // Two-column masonry on desktop, mirroring Read's term grid: even indices
@@ -493,7 +517,7 @@ export function KanjiScreen({
         {mode === "camera" && showCamera && (
           <CameraPanel
             active={active}
-            recognizeImage={recognizer.recognizeImage}
+            readImage={recognizer.readImage}
             recognizerStatus={recognizer.status}
             onResult={setCameraCandidates}
           />
@@ -707,6 +731,12 @@ function DrawPanel({
           Recognizer failed to load: {status.message}
         </p>
       )}
+      {status.kind === "ready" && status.mode === "main" && (
+        <p className="ks-draw-status ink-faint">
+          Background recognition unavailable — reading happens on the page and
+          may briefly stall it.
+        </p>
+      )}
     </div>
   );
 }
@@ -715,23 +745,26 @@ function DrawPanel({
 // ============================ Camera panel ===============================
 //
 // Multi-character camera capture (mobile-only). A live rear-camera viewfinder
-// with a manual horizontal/vertical guide box; the shutter grabs one still,
-// crops it to the guide box, runs the pixel pipeline (imagePreprocess.ts), and
-// recognizes each detected cell off the main thread. Results flow through the
-// same candidate row + KanjiCard as Draw. Capture-then-process, not live —
-// the recognizer is WASM and the pre-stage is one-shot (FINDINGS §9).
+// with a manual horizontal/vertical guide box; the shutter grabs one still and
+// crops it to the guide box — everything else (the pixel pipeline of
+// imagePreprocess.ts + per-cell recognition) runs in the inference worker via
+// readImage, keeping the main thread clear of the multi-second pixel crunch
+// that hung (and on iOS killed) the tab. Results flow through the same
+// candidate row + KanjiCard as Draw. Capture-then-process, not live — the
+// recognizer is WASM and the pre-stage is one-shot (FINDINGS §9).
 
 type CropRect = { fx: number; fy: number; fw: number; fh: number };
 
 function CameraPanel({
   active,
-  recognizeImage,
+  readImage,
   recognizerStatus,
   onResult,
 }: {
   active: boolean;
-  recognizeImage: (
-    cells: Float32Array[],
+  readImage: (
+    image: ImageData,
+    axis: ReadAxis,
     topK?: number,
   ) => Promise<Candidate[][]>;
   recognizerStatus: ReturnType<typeof useKanjiRecognizer>["status"];
@@ -747,11 +780,17 @@ function CameraPanel({
   // silent empty row.
   const [resultCount, setResultCount] = useState<number | null>(null);
   // The captured still is shown as the FULL frame at the same framing as the
-  // live viewfinder (object-fit: cover), so the shot doesn't appear to zoom on
-  // capture. The frame canvas is also kept in a ref so the crop can be re-read
-  // at intrinsic resolution whenever the user adjusts the box.
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  // live viewfinder (object-fit: cover applies to <canvas> the same as <img>),
+  // so the shot doesn't appear to zoom on capture. The frame canvas is kept in
+  // a ref so the crop can be re-read whenever the user adjusts the box; the
+  // visible still is a second canvas the frame is blitted onto when the
+  // captured phase mounts. No encode at all: the original PNG data URL was a
+  // synchronous full-frame encode + a multi-MB base64 string in state (one of
+  // the iOS tab-kill contributors), and the toBlob+object-URL replacement
+  // never displayed on iOS Safari. A direct drawImage is synchronous, cheap,
+  // and has no blob/URL lifecycle to go wrong.
   const frameRef = useRef<HTMLCanvasElement | null>(null);
+  const stillRef = useRef<HTMLCanvasElement | null>(null);
   const [cropRect, setCropRect] = useState<CropRect>(GUIDE_BOX.h);
   const stageRef = useRef<HTMLDivElement | null>(null);
   // Mirrors for async handlers (pointer-up commit, axis change) so they read
@@ -792,36 +831,53 @@ function CameraPanel({
       if (!crop) return;
       setBusy(true);
       try {
-        // imageToCells already drops non-glyph cells (blank/blob); filterGlyphGroups
-        // then drops cells the recognizer couldn't read as any character. Whatever
-        // survives both is real text — an empty result means "no kanji in the box".
-        const cells = imageToCells(crop, readAxis);
-        const groups = filterGlyphGroups(await recognizeImage(cells, TOP_K));
+        // The whole read — pixel pipeline + per-cell recognition — runs in the
+        // inference worker; the crop's pixel buffer is transferred, not copied,
+        // and `crop` must not be reused after this call. The pipeline drops
+        // non-glyph cells (blank/blob); filterGlyphGroups then drops cells the
+        // recognizer couldn't read as any character. Whatever survives both is
+        // real text — an empty result means "no kanji in the box".
+        const groups = filterGlyphGroups(await readImage(crop, readAxis, TOP_K));
         setResultCount(groups.length);
         onResult(groups);
       } finally {
         setBusy(false);
       }
     },
-    [recognizeImage, onResult],
+    [readImage, onResult],
   );
+
+  // Blit the grabbed frame onto the visible still as soon as the captured
+  // phase has rendered the canvas element. The PREVIEW is capped — recognition
+  // reads the full-resolution frame from frameRef, but the on-screen still is
+  // only ever displayed at stage size, and an uncapped 4K blit would park a
+  // ~50 MB second canvas in the DOM for nothing.
+  useEffect(() => {
+    if (phase !== "captured") return;
+    const frame = frameRef.current;
+    const still = stillRef.current;
+    if (!frame || !still) return;
+    const scale = Math.min(1, STILL_MAX_DIM / Math.max(frame.width, frame.height));
+    still.width = Math.max(1, Math.round(frame.width * scale));
+    still.height = Math.max(1, Math.round(frame.height * scale));
+    still.getContext("2d")?.drawImage(frame, 0, 0, still.width, still.height);
+  }, [phase]);
 
   const onShutter = useCallback(async () => {
     const frame = grabFrame();
     if (!frame) return;
     frameRef.current = frame;
-    setFrameUrl(frame.toDataURL("image/png"));
     const rect = GUIDE_BOX[axisRef.current];
     setCrop(rect);
     // Switching to the captured phase releases the camera via the stream effect
-    // (the still is already grabbed above, so the live feed isn't needed).
+    // (the still is already grabbed above, so the live feed isn't needed) and
+    // triggers the blit effect above.
     setPhase("captured");
     await recognizeCrop(rect, axisRef.current);
   }, [grabFrame, setCrop, recognizeCrop]);
 
   const onRetake = useCallback(() => {
     frameRef.current = null;
-    setFrameUrl(null);
     onResult([]);
     setResultCount(null);
     // Back to live: the stream effect re-acquires the camera.
@@ -865,10 +921,12 @@ function CameraPanel({
       <div className="ks-cam-stage" ref={stageRef}>
         {phase === "captured" ? (
           <>
-            {frameUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="ks-cam-still" src={frameUrl} alt="Captured photo" />
-            )}
+            <canvas
+              ref={stillRef}
+              className="ks-cam-still"
+              role="img"
+              aria-label="Captured photo"
+            />
             <CropBox
               rect={cropRect}
               stageRef={stageRef}
@@ -936,6 +994,12 @@ function CameraPanel({
       {recognizerStatus.kind === "error" && (
         <p className="ks-draw-status ink-faint">
           Recognizer failed to load: {recognizerStatus.message}
+        </p>
+      )}
+      {recognizerStatus.kind === "ready" && recognizerStatus.mode === "main" && (
+        <p className="ks-draw-status ink-faint">
+          Background recognition unavailable — large captures read on the page
+          thread and may stall it.
         </p>
       )}
     </div>

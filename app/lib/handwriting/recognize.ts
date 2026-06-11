@@ -32,6 +32,45 @@ export async function recognize(
   return topKSoftmax(logits, resources.classes, topK);
 }
 
+/**
+ * Batched inference: every cell in ONE `session.run` (`[N,1,96,96]` — the
+ * model is exported with a dynamic batch axis, see export.py), then per-row
+ * top-K. One JS↔WASM round trip and one graph execution instead of N: on a
+ * phone a 10+-character capture was N sequential runs of sustained CPU, which
+ * is exactly the load profile iOS Safari kills tabs over. Worker-path only by
+ * design — on the main-thread fallback a single huge run would block the page
+ * for the whole batch, so the fallback keeps the per-cell loop.
+ */
+export async function recognizeBatch(
+  resources: RecognizerResources,
+  cells: Float32Array[],
+  topK = 8,
+): Promise<Candidate[][]> {
+  if (cells.length === 0) return [];
+  const ort = await import("onnxruntime-web/wasm");
+  const px = HANDWRITING_INPUT_SIZE * HANDWRITING_INPUT_SIZE;
+  const batch = new Float32Array(cells.length * px);
+  for (let i = 0; i < cells.length; i++) batch.set(cells[i], i * px);
+  const tensor = new ort.Tensor("float32", batch, [
+    cells.length,
+    1,
+    HANDWRITING_INPUT_SIZE,
+    HANDWRITING_INPUT_SIZE,
+  ]);
+  const inputName = resources.session.inputNames[0];
+  const outputName = resources.session.outputNames[0];
+  const results = await resources.session.run({ [inputName]: tensor });
+  const logits = results[outputName].data as Float32Array;
+  const perRow = logits.length / cells.length;
+  const out: Candidate[][] = [];
+  for (let i = 0; i < cells.length; i++) {
+    out.push(
+      topKSoftmax(logits.subarray(i * perRow, (i + 1) * perRow), resources.classes, topK),
+    );
+  }
+  return out;
+}
+
 function topKSoftmax(
   logits: Float32Array,
   classes: string[],

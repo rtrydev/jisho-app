@@ -3,20 +3,34 @@
 //
 // Strokes are plain `{x, y}` arrays and candidates are plain objects, so both
 // directions are structured-cloneable with no special transfer handling. The
-// camera path sends already-normalized 96×96 cells (Float32Array), which are
-// likewise structured-cloneable.
+// camera path sends the cropped frame's RGBA pixels as an ArrayBuffer, which
+// the client passes in the postMessage transfer list — moved, not cloned, so
+// a ~MB crop costs nothing to hand over.
 
 import type { Candidate, Stroke } from "./types";
+import type { ReadAxis } from "./imagePreprocess";
 
 /** Main thread → worker. */
 export type WorkerRequest =
   | { type: "init" }
   | { type: "recognize"; id: number; strokes: Stroke[]; topK: number }
-  // Camera mode: the main thread does the pixel pre-stage (foreground
-  // extraction + segmentation + normalize, see imagePreprocess.ts) and sends
-  // one preprocessed 96×96 cell per detected character. The worker only runs
-  // the recognizer — no segmentation — and returns top-K per cell.
-  | { type: "recognizeImage"; id: number; cells: Float32Array[]; topK: number };
+  // Camera mode: the main thread only grabs the frame and crops it to the
+  // guide box; the WHOLE pixel pipeline — foreground extraction, multi-line
+  // segmentation, cell normalization (imagePreprocess.ts) — plus per-cell
+  // recognition runs in the worker. Keeping the pipeline off the main thread
+  // matters on phones: it is several full-image passes and multiple
+  // flood-fill labelings over a ~1 MP crop, enough sustained main-thread CPU
+  // for iOS Safari to kill the tab.
+  | {
+      type: "readImage";
+      id: number;
+      /** RGBA bytes of the cropped ImageData (transferred, not cloned). */
+      pixels: ArrayBuffer;
+      width: number;
+      height: number;
+      axis: ReadAxis;
+      topK: number;
+    };
 
 /** Worker → main thread. */
 export type WorkerResponse =

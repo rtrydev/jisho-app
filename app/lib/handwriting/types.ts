@@ -14,10 +14,17 @@ export type Candidate = {
   classIndex: number;
 };
 
+/** Where inference actually runs. `worker` is the intended path; `main` means
+ *  the dedicated worker was unavailable or failed to start and everything —
+ *  pixel pipeline included — executes on the page thread. Surfaced through
+ *  RecognizerStatus so a silent degradation is visible in the UI (on a phone
+ *  nobody sees the console.warn, they just see the tab die under load). */
+export type RecognizerMode = "worker" | "main";
+
 export type RecognizerStatus =
   | { kind: "idle" }
   | { kind: "loading"; step: string; progress: number }
-  | { kind: "ready" }
+  | { kind: "ready"; mode: RecognizerMode }
   | { kind: "error"; message: string };
 
 export type KanjiClassesManifest = {

@@ -161,4 +161,20 @@ describe("findWordCombinations", () => {
     expect(out.length).toBeGreaterThanOrEqual(2);
     expect(out[0].headword).toBe("感じ");
   });
+
+  it("stays bounded on many slots (camera captures) and still finds embedded words", () => {
+    // 12 slots × 5 candidates each. Before the run-length cap, runs extended
+    // to the end of the slot list, so this input built 5^12 ≈ 244M candidate
+    // products from the first slot alone — the multi-line camera crash. With
+    // the cap it is a few thousand lookups; if the cap regresses, this test
+    // hangs rather than fails subtly.
+    const filler = (): ReturnType<typeof slot> =>
+      slot(["甲", 0.5], ["乙", 0.4], ["丙", 0.3], ["丁", 0.2], ["戊", 0.1]);
+    const slots = Array.from({ length: 12 }, filler);
+    // The real word sits mid-capture on adjacent slots.
+    slots[5] = slot(["漢", 0.9], ["甲", 0.05], ["乙", 0.04], ["丙", 0.03], ["丁", 0.02]);
+    slots[6] = slot(["字", 0.8], ["甲", 0.05], ["乙", 0.04], ["丙", 0.03], ["丁", 0.02]);
+    const out = findWordCombinations(resources, slots);
+    expect(out.map((s) => s.headword)).toContain("漢字");
+  });
 });

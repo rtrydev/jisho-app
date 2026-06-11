@@ -16,7 +16,9 @@
 //   4. mild Gaussian (σ≈0.5) to restore the anti-aliased edge the model expects
 //   5. line segmentation: cross-axis projection → one band per text line
 //      (rows for horizontal text; columns for vertical, read right-to-left),
-//      with noise-band and clipped-edge-line filters
+//      with noise-band filtering, sliced-line repair (the square-em test that
+//      keeps 三/言/川 captures whole), furigana dropping, and clipped-edge-
+//      line filtering
 //   6. glyph-scale speck pruning — the line height (em) is known now, so
 //      "speck" can finally mean "small relative to a character"
 //   7. per-line projection-profile segmentation along the reading axis → cells
@@ -73,12 +75,46 @@ const LINE_MIN_MASS_FRAC = 0.015;
 // spares legitimately thin interior bands (a line of 一二三 is a thin band that
 // sits away from the edges). Touch tolerance covers the σ≈0.5 blur spread.
 const EDGE_TOUCH_PX = 2;
+// Sliced-line repair (the square-em test). The cross-axis valley cut can't
+// tell a gap BETWEEN lines from a gap INSIDE every character of one line:
+// 三 言 こ — or any short capture of horizontally-divisible glyphs — put
+// full-width whitespace through the middle of the line, so it shreds into
+// stripe "lines" and every stripe misreads (each bar of 三 becomes 一); a lone
+// 川 does the same on the vertical axis. Gap size can't discriminate (the
+// gaps inside 三 are as wide as real leading), but the square em grid of
+// Japanese print can: cells of a real line are ~square, cells of a slice are
+// far wider than the band is tall. Bands whose cells are wide are re-merged
+// with a neighbour while that moves the aspect toward square; a merge that
+// crosses into a genuinely separate line makes the cells markedly TALLER
+// than wide and is rejected.
+const WIDE_CELL_RATIO = 1.6; // try to repair a band above this width/height
+const MIN_MERGED_RATIO = 0.75; // merged cells below this = two real lines
+// Furigana filter. A band well under the surrounding line height, hugging a
+// full-size line, whose own cells are square AT ITS OWN SCALE is furigana.
+// Pre-multi-line such glyphs were merely absorbed into the main line's cells;
+// detected as their own line they'd be read as standalone (tiny, usually
+// misrecognized) characters interleaved into the output — for vertical text
+// even BEFORE their parent column. The squareness condition spares thin
+// bar-kanji lines (一二三 — wide cells, not square), and the adjacency
+// condition spares genuinely small standalone lines (captions sit at normal
+// leading, furigana hugs its parent).
+const FURIGANA_MAX_EXTENT_FRAC = 0.55; // vs the median band extent…
+const FURIGANA_MAX_GAP_FRAC = 0.25; // …with a full-size band this close
+const FURIGANA_SQUARE_MIN = 0.6;
+const FURIGANA_SQUARE_MAX = 1.8;
 // Per-cell junk exclusion (normalizeCell). A component well below the cell's
 // dominant component (< 5% of its area) that also sits clear of the glyph core
 // is junk that rode into the cell; legitimate detached parts (dakuten, the
 // dots of 心, い's second stroke) are either not that small or hug the core.
 const CELL_MINOR_AREA_FRAC = 0.05;
 const CELL_CORE_GAP_FRAC = 0.12; // ..."clear of" = farther than this × em
+// Hard ceiling on characters read per capture, in reading order. Real crops
+// rarely exceed ~4 lines × 10 characters; far past that it's a pathological
+// segmentation of a noisy frame, and every region costs a normalization plus
+// a forward pass. The ceiling bounds the worst-case work (the load profile
+// that got the tab killed on phones) instead of letting a bad frame schedule
+// hundreds of runs.
+const MAX_READ_CELLS = 40;
 // Light smoothing (as a fraction of glyph size) for the valley-snapping profile
 // used by the pitch refinement — see refineByPitch / projectionRuns.
 const SEG_SNAP_FRAC = 0.05;
@@ -743,11 +779,9 @@ function dropLeakRuns(runs: Run[]): Run[] {
 function lineBands(
   ink: Float32Array,
   w: number,
-  h: number,
   bb: Bbox,
   axis: ReadAxis,
 ): Run[] {
-  const cross0 = axis === "h" ? bb.y0 : bb.x0;
   const len = axis === "h" ? bb.y1 - bb.y0 : bb.x1 - bb.x0;
   if (len <= 0) return [];
   const prof = new Float32Array(len);
@@ -782,8 +816,134 @@ function lineBands(
     return m;
   });
   const maxMass = Math.max(...mass);
-  const kept = runs.filter((_, i) => mass[i] >= LINE_MIN_MASS_FRAC * maxMass);
-  return dropClippedEdgeBands(kept, cross0, axis === "h" ? h : w);
+  return runs.filter((_, i) => mass[i] >= LINE_MIN_MASS_FRAC * maxMass);
+}
+
+/** The image region a (bbox-local) band covers: full bbox along the reading
+ *  axis, the band's span across it. */
+function bandRegion(bb: Bbox, band: Run, axis: ReadAxis): Bbox {
+  return axis === "h"
+    ? { x0: bb.x0, x1: bb.x1, y0: bb.y0 + band.a, y1: bb.y0 + band.b }
+    : { x0: bb.x0 + band.a, x1: bb.x0 + band.b, y0: bb.y0, y1: bb.y1 };
+}
+
+/** Median raw run extent along the reading axis within a band — the "how wide
+ *  are this band's cells" statistic the square-em passes compare against the
+ *  band's own extent. Raw valley runs only: no pitch refinement (that needs
+ *  the em these passes are still establishing) and no min-run filter. */
+function bandMedianRun(
+  ink: Float32Array,
+  w: number,
+  bb: Bbox,
+  axis: ReadAxis,
+  band: Run,
+): number {
+  const tight = inkBboxIn(ink, w, bandRegion(bb, band, axis));
+  if (!tight) return 0;
+  const len = axis === "h" ? tight.x1 - tight.x0 : tight.y1 - tight.y0;
+  if (len <= 0) return 0;
+  const prof = new Float32Array(len);
+  for (let y = tight.y0; y < tight.y1; y++) {
+    const row = y * w;
+    for (let x = tight.x0; x < tight.x1; x++) {
+      prof[axis === "h" ? x - tight.x0 : y - tight.y0] += ink[row + x];
+    }
+  }
+  const smoothed = gaussian1d(prof, Math.max(1, len * 0.01));
+  let peak = 0;
+  for (let i = 0; i < len; i++) if (smoothed[i] > peak) peak = smoothed[i];
+  const thr = GAP_FRAC * peak;
+  const extents: number[] = [];
+  let start: number | null = null;
+  for (let i = 0; i < len; i++) {
+    const on = smoothed[i] >= thr;
+    if (on && start === null) start = i;
+    else if (!on && start !== null) {
+      extents.push(i - start);
+      start = null;
+    }
+  }
+  if (start !== null) extents.push(len - start);
+  if (extents.length === 0) return 0;
+  extents.sort((p, q) => p - q);
+  return extents[extents.length >> 1];
+}
+
+/** Sliced-line repair (see the WIDE_CELL_RATIO note): greedily re-merge a
+ *  band whose cells are much wider than the band is tall with an adjacent
+ *  band, as long as the merge moves the cell aspect toward square and doesn't
+ *  overshoot into clearly-taller-than-wide (two real lines). Bands stay in
+ *  ascending order. */
+function mergeSlicedBands(
+  ink: Float32Array,
+  w: number,
+  bb: Bbox,
+  axis: ReadAxis,
+  bands: Run[],
+): Run[] {
+  if (bands.length < 2) return bands;
+  const cellRatio = (band: Run): number => {
+    const extent = band.b - band.a;
+    if (extent <= 0) return 1;
+    const med = bandMedianRun(ink, w, bb, axis, band);
+    return med > 0 ? med / extent : 1;
+  };
+  const out = bands.slice();
+  for (let merged = true; merged && out.length > 1; ) {
+    merged = false;
+    for (let i = 0; i < out.length && !merged; i++) {
+      const ratio = cellRatio(out[i]);
+      if (ratio <= WIDE_CELL_RATIO) continue;
+      // Try the neighbour across the smaller gap first — slices of one glyph
+      // row sit closer to each other than to the next real line.
+      const gapPrev = i > 0 ? out[i].a - out[i - 1].b : Infinity;
+      const gapNext = i < out.length - 1 ? out[i + 1].a - out[i].b : Infinity;
+      const order = gapPrev <= gapNext ? [i - 1, i + 1] : [i + 1, i - 1];
+      for (const j of order) {
+        if (j < 0 || j >= out.length) continue;
+        const candidate: Run = {
+          a: Math.min(out[i].a, out[j].a),
+          b: Math.max(out[i].b, out[j].b),
+        };
+        const mergedRatio = cellRatio(candidate);
+        if (mergedRatio < MIN_MERGED_RATIO) continue; // crossed into another line
+        if (Math.abs(Math.log(mergedRatio)) >= Math.abs(Math.log(ratio))) continue;
+        out.splice(Math.min(i, j), 2, candidate);
+        merged = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Drop furigana bands (see the FURIGANA_* note): well under the median line
+ *  height, hugging a full-size band, square cells at their own scale. */
+function dropFuriganaBands(
+  ink: Float32Array,
+  w: number,
+  bb: Bbox,
+  axis: ReadAxis,
+  bands: Run[],
+): Run[] {
+  if (bands.length < 2) return bands;
+  const extents = bands.map((r) => r.b - r.a);
+  const sorted = extents.slice().sort((p, q) => p - q);
+  const median = sorted[sorted.length >> 1];
+  return bands.filter((band, i) => {
+    if (extents[i] >= FURIGANA_MAX_EXTENT_FRAC * median) return true;
+    const gapTol = FURIGANA_MAX_GAP_FRAC * median;
+    const hugsPrev =
+      i > 0 && band.a - bands[i - 1].b <= gapTol && extents[i - 1] >= 0.8 * median;
+    const hugsNext =
+      i < bands.length - 1 &&
+      bands[i + 1].a - band.b <= gapTol &&
+      extents[i + 1] >= 0.8 * median;
+    if (!hugsPrev && !hugsNext) return true;
+    const med = bandMedianRun(ink, w, bb, axis, band);
+    const ratio = med > 0 && extents[i] > 0 ? med / extents[i] : 1;
+    return ratio < FURIGANA_SQUARE_MIN || ratio > FURIGANA_SQUARE_MAX;
+  });
 }
 
 /** Line-level leak filter: drop a first/last band that touches the crop edge
@@ -868,7 +1028,19 @@ export function segmentGrid(
 ): SegmentedGrid {
   const bb = inkBbox(inkIn, w, h);
   if (!bb) return { regions: [], em: 0, ink: inkIn };
-  let bands = lineBands(inkIn, w, h, bb, axis);
+  // Band passes, in dependency order: detect (valley cut + noise-mass
+  // filter), repair sliced lines (so 三/言/川 captures are whole again before
+  // anything compares extents), drop furigana, then drop crop-clipped edge
+  // lines (last, so a sliver merged back into its line is no longer there to
+  // be dropped, and the median reflects repaired lines).
+  let bands = lineBands(inkIn, w, bb, axis);
+  bands = mergeSlicedBands(inkIn, w, bb, axis, bands);
+  bands = dropFuriganaBands(inkIn, w, bb, axis, bands);
+  bands = dropClippedEdgeBands(
+    bands,
+    axis === "h" ? bb.y0 : bb.x0,
+    axis === "h" ? h : w,
+  );
   // Tategaki columns read right-to-left; rows already come top-to-bottom.
   if (axis === "v") bands = bands.slice().reverse();
   const extents = bands.map((r) => r.b - r.a).sort((p, q) => p - q);
@@ -881,13 +1053,9 @@ export function segmentGrid(
 
   const regions: Bbox[] = [];
   for (const band of bands) {
-    const bandRegion: Bbox =
-      axis === "h"
-        ? { x0: bb.x0, x1: bb.x1, y0: bb.y0 + band.a, y1: bb.y0 + band.b }
-        : { x0: bb.x0 + band.a, x1: bb.x0 + band.b, y0: bb.y0, y1: bb.y1 };
     // Tight per-line bbox (post-pruning): keeps each cell's perpendicular
     // extent to the line's own ink, so neighbouring lines can't bleed in.
-    const lineBb = inkBboxIn(ink, w, bandRegion);
+    const lineBb = inkBboxIn(ink, w, bandRegion(bb, band, axis));
     if (!lineBb) continue;
     const runs = dropLeakRuns(projectionRuns(ink, w, lineBb, axis, em));
     for (const run of runs) {
@@ -1103,8 +1271,14 @@ export function imageToCells(
   ink = blur05(ink, w, h);
 
   const grid = segmentGrid(ink, w, h, axis);
+  // Truncation keeps reading order, so when a noisy frame over-segments, the
+  // first lines still come through rather than nothing at all.
+  const regions =
+    grid.regions.length > MAX_READ_CELLS
+      ? grid.regions.slice(0, MAX_READ_CELLS)
+      : grid.regions;
   const cells: Float32Array[] = [];
-  for (const region of grid.regions) {
+  for (const region of regions) {
     const cell = normalizeCell(grid.ink, w, region, grid.em);
     // Keep only cells that structurally read as a character — drops blank/blob
     // cells from a non-text photo so the recognizer never fabricates a kanji

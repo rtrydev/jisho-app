@@ -13,6 +13,7 @@ import {
   createRecognizerClient,
   type RecognizerClient,
 } from "./recognizerClient";
+import type { ReadAxis } from "./imagePreprocess";
 import type { Candidate, RecognizerStatus, Stroke } from "./types";
 
 export type KanjiRecognizer = {
@@ -22,10 +23,13 @@ export type KanjiRecognizer = {
    *  the strokes are empty. Throws only if recognition itself fails — load
    *  errors surface through `status` instead. */
   recognize: (strokes: Stroke[], topK?: number) => Promise<Candidate[][]>;
-  /** Recognize already-segmented, already-normalized 96×96 cells (the camera
-   *  path — see imagePreprocess.ts). Returns top-K per cell, in order. */
-  recognizeImage: (
-    cells: Float32Array[],
+  /** The camera path: pixel pipeline (imagePreprocess.ts) + per-cell
+   *  recognition on a cropped frame, all off the main thread on the worker
+   *  path. Returns top-K per detected character, in reading order. The
+   *  image's pixel buffer may be transferred — treat it as consumed. */
+  readImage: (
+    image: ImageData,
+    axis: ReadAxis,
     topK?: number,
   ) => Promise<Candidate[][]>;
 };
@@ -51,7 +55,17 @@ export function useKanjiRecognizer(): KanjiRecognizer {
     clientRef.current = client;
     ready.then(
       () => {
-        if (!cancelled) setStatus({ kind: "ready" });
+        if (cancelled) return;
+        const mode = client.mode();
+        if (mode === "main") {
+          // Loud on purpose: on a phone this degradation is otherwise
+          // invisible until the page thread grinds and iOS kills the tab.
+          console.warn(
+            "[handwriting] inference worker unavailable — recognition runs " +
+              "on the page thread and heavy reads will block the UI",
+          );
+        }
+        setStatus({ kind: "ready", mode });
       },
       (err: unknown) => {
         if (!cancelled) {
@@ -79,10 +93,10 @@ export function useKanjiRecognizer(): KanjiRecognizer {
   );
 
   const runImage = useCallback(
-    async (cells: Float32Array[], topK = 8): Promise<Candidate[][]> => {
+    async (image: ImageData, axis: ReadAxis, topK = 8): Promise<Candidate[][]> => {
       const client = clientRef.current;
-      if (!client || cells.length === 0) return [];
-      return client.recognizeImage(cells, topK);
+      if (!client) return [];
+      return client.readImage(image, axis, topK);
     },
     [],
   );
@@ -93,7 +107,7 @@ export function useKanjiRecognizer(): KanjiRecognizer {
   // which previously caused an infinite recognize/setState loop in callers
   // that depended on the whole recognizer.
   return useMemo(
-    () => ({ status, recognize: run, recognizeImage: runImage }),
+    () => ({ status, recognize: run, readImage: runImage }),
     [status, run, runImage],
   );
 }

@@ -14,7 +14,7 @@ import {
   analyze,
   EMPTY_RESULT,
   findWordCombinations as resolveWordCombinations,
-  findWordsContainingKanji as resolveKanjiExamples,
+  findWordsContainingKanjiMany as resolveKanjiExamplesMany,
   getDictionaryEntry as resolveEntry,
   type AnalysisResult,
   type AnalysisStatus,
@@ -47,6 +47,15 @@ export type EngineContextValue = {
    *  by the kanji detail card to surface "in words" examples. Returns an
    *  empty array when the engine isn't ready. */
   findKanjiExamples: (char: string, limit?: number) => KanjiWordExample[];
+  /** Batch form of findKanjiExamples: ONE dictionary scan for all requested
+   *  characters (plus a cross-call cache). Multi-character callers — the
+   *  Kanji screen building a detail card per detected camera character — must
+   *  use this; N single-char calls are N full scans of a ~217k-key dictionary
+   *  on the main thread. Returns an empty map when the engine isn't ready. */
+  findKanjiExamplesMany: (
+    chars: ReadonlyArray<string>,
+    limit?: number,
+  ) => Map<string, KanjiWordExample[]>;
   /** Real dictionary entries that match a combination of per-position kanji
    *  candidates. Powers the Draw-mode "word suggestions" row — see
    *  `findWordCombinations` for ranking semantics. Returns an empty array
@@ -165,12 +174,44 @@ export function EngineProvider({
     [resources],
   );
 
-  const findKanjiExamples = useCallback(
-    (char: string, limit?: number) => {
-      if (!resources) return [];
-      return resolveKanjiExamples(resources, char, limit);
+  // Per-character example lookups cost a full dictionary scan, so results are
+  // cached for the lifetime of the loaded resources (the dictionary is
+  // immutable once loaded; a resources swap clears the cache). Keyed by
+  // char|limit since the limit changes the stored slice.
+  const kanjiExampleCache = useRef(new Map<string, KanjiWordExample[]>());
+  useEffect(() => {
+    kanjiExampleCache.current.clear();
+  }, [resources]);
+
+  const findKanjiExamplesMany = useCallback(
+    (chars: ReadonlyArray<string>, limit = 8) => {
+      const out = new Map<string, KanjiWordExample[]>();
+      if (!resources) return out;
+      const cache = kanjiExampleCache.current;
+      const missing: string[] = [];
+      for (const char of chars) {
+        if (!char || out.has(char)) continue;
+        const hit = cache.get(`${char}|${limit}`);
+        if (hit) out.set(char, hit);
+        else missing.push(char);
+      }
+      if (missing.length > 0) {
+        const found = resolveKanjiExamplesMany(resources, missing, limit);
+        for (const char of missing) {
+          const examples = found.get(char) ?? [];
+          cache.set(`${char}|${limit}`, examples);
+          out.set(char, examples);
+        }
+      }
+      return out;
     },
     [resources],
+  );
+
+  const findKanjiExamples = useCallback(
+    (char: string, limit?: number) =>
+      findKanjiExamplesMany([char], limit).get(char) ?? [],
+    [findKanjiExamplesMany],
   );
 
   const suggestWordCombinations = useCallback(
@@ -196,6 +237,7 @@ export function EngineProvider({
       clear,
       getEntry,
       findKanjiExamples,
+      findKanjiExamplesMany,
       suggestWordCombinations,
     }),
     [
@@ -205,6 +247,7 @@ export function EngineProvider({
       clear,
       getEntry,
       findKanjiExamples,
+      findKanjiExamplesMany,
       suggestWordCombinations,
     ],
   );

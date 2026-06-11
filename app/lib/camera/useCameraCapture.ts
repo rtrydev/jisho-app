@@ -36,8 +36,13 @@ export type CameraCapture = {
   start: () => void;
   /** Stop all tracks and detach. Idempotent; also runs on unmount. */
   stop: () => void;
-  /** Rasterize the current frame to a canvas at intrinsic resolution. Returns
-   *  null when not yet streaming a real frame. */
+  /** Rasterize the current frame to a canvas at intrinsic resolution. NO
+   *  downscale here — the recognition crop is cut from this canvas, and small
+   *  text needs every pixel the sensor gives (a capped frame measurably
+   *  degraded small-character recognition; the pixel pipeline bounds its own
+   *  working size from the *crop*, after the guide box has zoomed in).
+   *  Consumers that don't need full resolution (the still preview) downscale
+   *  on their side. Returns null when not yet streaming a real frame. */
   grabFrame: () => HTMLCanvasElement | null;
 };
 

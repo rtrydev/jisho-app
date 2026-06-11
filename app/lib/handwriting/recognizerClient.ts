@@ -11,7 +11,8 @@
 // fails to initialise, we transparently fall back to running the same pipeline
 // on the main thread — recognition still works, it just isn't offloaded.
 
-import type { Candidate, Stroke } from "./types";
+import type { Candidate, RecognizerMode, Stroke } from "./types";
+import type { ReadAxis } from "./imagePreprocess";
 import type { WorkerRequest, WorkerResponse } from "./workerProtocol";
 
 export type RecognizerProgress = (step: string, ratio: number) => void;
@@ -19,10 +20,18 @@ export type RecognizerProgress = (step: string, ratio: number) => void;
 export interface RecognizerClient {
   /** Segment + recognize a drawing; one Candidate[] per detected character. */
   recognize(strokes: Stroke[], topK: number): Promise<Candidate[][]>;
-  /** Recognize pre-segmented, pre-normalized 96×96 cells (the camera path —
-   *  segmentation already happened on the main thread); one Candidate[] per
-   *  cell, in order. */
-  recognizeImage(cells: Float32Array[], topK: number): Promise<Candidate[][]>;
+  /** The camera path: run the whole pixel pipeline (foreground extraction +
+   *  multi-line segmentation + cell normalization, see imagePreprocess.ts) and
+   *  per-cell recognition on a cropped frame; one Candidate[] per detected
+   *  character, in reading order. On the worker path the image's pixel buffer
+   *  is TRANSFERRED — the caller must treat `image` as consumed. */
+  readImage(image: ImageData, axis: ReadAxis, topK: number): Promise<Candidate[][]>;
+  /** Where inference is running NOW. Reflects a post-construction fallback
+   *  (worker died during init → "main"), so read it after `ready` resolves.
+   *  The silent worker→main degradation is the difference between "captures
+   *  are smooth" and "the page thread grinds for seconds", so callers surface
+   *  it (see useKanjiRecognizer / the Kanji screen status line). */
+  mode(): RecognizerMode;
   /** Tear down the worker (if any). Idempotent. */
   dispose(): void;
 }
@@ -57,15 +66,21 @@ function createMainThreadClient(onProgress?: RecognizerProgress): RecognizerHand
       ]);
       return recognizeMulti(strokes, resources, topK);
     },
-    async recognizeImage(cells, topK) {
-      const [{ recognize }, resources] = await Promise.all([
+    async readImage(image, axis, topK) {
+      const [{ imageToCells }, { recognize }, resources] = await Promise.all([
+        import("./imagePreprocess"),
         import("./recognize"),
         resourcesPromise,
       ]);
+      const cells = imageToCells(image, axis);
+      // Deliberately per-cell (not recognizeBatch): on the main thread one
+      // batched run would block the page for the whole capture; N short runs
+      // at least yield to the event loop between cells.
       const out: Candidate[][] = [];
       for (const cell of cells) out.push(await recognize(resources, cell, topK));
       return out;
     },
+    mode: () => "main" as const,
     dispose() {
       /* nothing to tear down on the main thread */
     },
@@ -108,14 +123,26 @@ function createWorkerClient(onProgress?: RecognizerProgress): RecognizerHandle {
         worker.postMessage(req);
       });
     },
-    recognizeImage(cells, topK) {
+    readImage(image, axis, topK) {
       return new Promise<Candidate[][]>((resolve, reject) => {
         const id = nextId++;
         pending.set(id, { resolve, reject });
-        const req: WorkerRequest = { type: "recognizeImage", id, cells, topK };
-        worker.postMessage(req);
+        const pixels = image.data.buffer as ArrayBuffer;
+        const req: WorkerRequest = {
+          type: "readImage",
+          id,
+          pixels,
+          width: image.width,
+          height: image.height,
+          axis,
+          topK,
+        };
+        // Transfer the pixel buffer (a ~MB crop) instead of cloning it; the
+        // caller's ImageData is detached afterwards, per the interface doc.
+        worker.postMessage(req, [pixels]);
       });
     },
+    mode: () => "worker" as const,
     dispose() {
       worker.terminate();
       pending.clear();
@@ -187,7 +214,10 @@ function createWorkerClient(onProgress?: RecognizerProgress): RecognizerHandle {
 
   const client: RecognizerClient = {
     recognize: (strokes, topK) => impl.recognize(strokes, topK),
-    recognizeImage: (cells, topK) => impl.recognizeImage(cells, topK),
+    readImage: (image, axis, topK) => impl.readImage(image, axis, topK),
+    // `impl` is swapped for a main-thread client when init falls back, so this
+    // reads the live answer, not the construction-time intent.
+    mode: () => (impl === workerImpl ? "worker" : "main"),
     dispose: () => impl.dispose(),
   };
 
