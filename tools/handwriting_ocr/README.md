@@ -182,14 +182,25 @@ line** — the headline confusion diagnostic (see `RECOGNIZER_CHALLENGES.md`).
 Conditions: `deployment` (honest proxy), `clean` (sharp canonical ceiling),
 `freehand` (real-handwriting proxy: sharp + open corners + connections),
 `clutter` (camera-junk proxy: deployment + residual border marks — see
-`NOISE_ROBUSTNESS.md`), `train`.
+`NOISE_ROBUSTNESS.md`), `print` (photo-mode letterform proxy: font-rendered
+filled glyphs, what the camera pipeline feeds the model — needs `fetch-fonts`),
+`print-bold` (the bold-sans slice of `print` — the manga-dialogue letterforms
+photo mode struggles with), `print-photo` (print-bold with the measured photo
+killers forced on: low-res downscale-upscale + dim ink + gradients — the row
+the photo-appearance training knobs must raise), `train`. The print conditions
+replace the cluster line with a per-font-face top-1 table (worst faces first).
+Measured findings from these conditions — including why bold sans actually
+fails in photos (resolution + ink amplitude, not letterform coverage) — are in
+`PHOTO_PRINT_FINDINGS.md`.
 
 > **Why this exists:** a prior run shipped-by-mistake-criteria — it was selected
 > on a font/ink/cutout-heavy val set the canvas never produces, and lost badly
 > on real clean strokes. Run `eval` before every `export`; only ship a model
-> that beats the deployed one on the `deployment` condition. To set the
-> baseline, copy the currently-deployed checkpoint to
-> `.handwriting-work/checkpoints/deployed_baseline.pt` before retraining.
+> that beats the deployed one on the `deployment` condition **and does not
+> regress `print`** (the camera mode shares this recognizer — see
+> `imagePreprocess.ts`). To set the baseline, copy the currently-deployed
+> checkpoint to `.handwriting-work/checkpoints/deployed_baseline.pt` before
+> retraining.
 
 ## Training logs
 

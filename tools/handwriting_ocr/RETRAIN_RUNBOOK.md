@@ -113,6 +113,19 @@ python -m tools.handwriting_ocr validate \
   camera-junk robustness — see `NOISE_ROBUSTNESS.md`). Check the `clutter`
   eval condition improves; if `clean` regressed instead, dial `p_clutter`
   down and re-train.
+- `PRINT` / `PRINT-B` **top-1 and gate%% do NOT regress** — these rows are the
+  photo-mode letterform proxy (font-rendered filled glyphs; `PRINT-B` is the
+  bold-sans slice). `gate%%` is the share of real characters that clears the
+  camera path's top-12-mass floor; every point below 100 is a character photo
+  mode silently drops. The per-face table attributes a drop to specific
+  letterforms (bold gothic faces are the known weak slice).
+- `PRINT-PH` **top-1 goes UP meaningfully** — this row forces the measured
+  photo-mode killers (low-res + dim ink + gradients, see
+  `PHOTO_PRINT_FINDINGS.md`) and is what the photo-appearance training knobs
+  (`ink_gain_*`, `p_lowres`, `p_ink_grain` in `config.py`) exist to fix. The
+  pre-knob model scores low here by construction; if `deployment` or `clean`
+  regressed instead, dial those knobs down (lower `p_lowres`, raise
+  `ink_gain_min`) and re-train.
 
 ### 4b. (optional) PyTorch head-to-head, if you still have the old checkpoint
 Only works if a pre-retrain `best.pt` exists (it is **not** in the repo). If you

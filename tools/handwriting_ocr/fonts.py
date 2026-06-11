@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import platform
 import random
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
@@ -52,6 +53,19 @@ _NON_JP_FONT_PREFIXES: tuple[str, ...] = (
     "nsimsun",    # NSimSun (Simplified Chinese)
     "mingliu",    # MingLiU (Traditional Chinese)
     "kaiu",       # DFKai-SB (Traditional Chinese)
+    # macOS system faces with Korean / Chinese glyph shapes (same wrong-
+    # regional-form problem as the Windows entries above).
+    "hiragino sans gb",   # Hiragino Sans GB (Simplified Chinese)
+    "applesdgothicneo",   # Apple SD Gothic Neo (Korean)
+    "applegothic",        # AppleGothic (Korean)
+    "applemyungjo",       # AppleMyungjo (Korean)
+    "stheiti",            # STHeiti (Simplified Chinese)
+    "songti",             # Songti (Chinese)
+    "stsong",             # STSong (Chinese)
+    "pingfang",           # PingFang (Chinese)
+    "stkaiti",            # STKaiti (Chinese)
+    "stfangsong",         # STFangsong (Chinese)
+    "arial unicode",      # pan-Unicode fallback; Han forms are not JP-styled
 )
 
 
@@ -169,15 +183,19 @@ def _font_diversity_ok(
     path: Path,
     index: int = 0,
     *,
-    min_mean_pairwise_l1: float = 0.08,
+    min_mean_pairwise_l1: float = 0.05,
 ) -> bool:
     """Reject fonts that render distinct kanji as visually identical bitmaps.
 
     Tofu (missing-glyph) renderings collapse to a fixed outline regardless
     of the requested codepoint, so the mean pairwise L1 distance between
-    renderings of different chars drops near 0. Real fonts give roughly
-    0.15–0.40. The 0.08 threshold catches near-degenerate fonts while
-    letting legitimately-low-diversity stylistic fonts through.
+    renderings of different chars drops to ~0 (identical bitmaps); the
+    ``?``-fallback case is caught separately below. Measured real fonts sit
+    around 0.10–0.13 — EXCEPT ultra-bold display faces, whose mostly-filled
+    glyphs overlap heavily (Dela Gothic One = 0.065). The old 0.08 threshold
+    silently rejected exactly those faces, cutting the boldest letterforms
+    out of training entirely; 0.05 keeps them while still catching
+    degenerate fonts.
     """
     try:
         font = ImageFont.truetype(str(path), size=48, index=index)
@@ -245,6 +263,29 @@ def discover_japanese_fonts() -> tuple[tuple[Path, int], ...]:
         out.append((path, idx))
         seen.add(key)
     return tuple(out)
+
+
+def filter_font_faces(
+    faces: tuple[tuple[Path, int], ...] | list[tuple[Path, int]],
+    stems: tuple[str, ...],
+) -> tuple[tuple[Path, int], ...]:
+    """Faces whose file stem contains any of ``stems`` (case-insensitive).
+
+    Empty ``stems`` passes everything through — the policy default. This is
+    the single matcher behind ``SynthesisPolicy.font_stem_allow`` so the
+    dataset and the eval/validate font reports agree on what a stem selects.
+    Both sides are NFC-normalized: macOS stores filenames NFD-decomposed, so
+    a Japanese stem like ヒラギノ角ゴシック would never match source-code NFC
+    strings byte-for-byte.
+    """
+    if not stems:
+        return tuple(faces)
+
+    def norm(s: str) -> str:
+        return unicodedata.normalize("NFC", s).casefold()
+
+    lowered = tuple(norm(s) for s in stems)
+    return tuple(f for f in faces if any(s in norm(f[0].stem) for s in lowered))
 
 
 def list_fonts(*, log_fn=print) -> int:

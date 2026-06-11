@@ -216,19 +216,53 @@ class SynthesisPolicy:
     # stroke shapes.
     faux_bold_max: int = 2
 
-    # --- Print/sensor artifacts: OFF. A stylus canvas never produces these
-    # (see the class docstring). Kept as fields so VAL_POLICY and the eval
-    # conditions can dial them explicitly, but zero in the training mix. -- #
+    # Restrict the font pool to faces whose file stem contains any of these
+    # substrings (case-insensitive). Empty = all discovered faces. Used by
+    # eval conditions that measure a specific letterform slice (e.g. the
+    # bold-sans faces photo mode struggles with); leave empty for training.
+    font_stem_allow: tuple[str, ...] = ()
+
+    # --- Print/sensor artifacts: mostly OFF. A stylus canvas never produces
+    # these (see the class docstring). Kept as fields so VAL_POLICY and the
+    # eval conditions can dial them explicitly. Exception: ink grain is ON —
+    # the camera path produces within-glyph intensity gradients (shadow, glare
+    # across one cell) that the runtime per-cell gain cannot correct (it is a
+    # single scalar per cell — see imagePreprocess.ts coreGain and
+    # PHOTO_PRINT_FINDINGS.md). -- #
     p_pixel_dropout: float = 0.0
     pixel_dropout_frac: float = 0.0
     gaussian_noise_std: float = 0.0
     p_ink_bleed: float = 0.0
     ink_bleed_max_radius: float = 0.0
-    p_ink_grain: float = 0.0
+    p_ink_grain: float = 0.3
     ink_grain_sigma: float = 4.0
-    ink_grain_strength: float = 0.0
+    ink_grain_strength: float = 0.25
     p_cutout: float = 0.0
     cutout_frac_max: float = 0.0
+
+    # --- Photo-mode appearance (the camera path shares this recognizer) -- #
+    # Measured root causes of the bold-sans photo failure
+    # (PHOTO_PRINT_FINDINGS.md): sub-unity ink amplitude and sub-~40px source
+    # glyphs are far out of distribution. The runtime fixes (per-cell core
+    # re-normalization, native-resolution cell cutting) remove the bulk; these
+    # knobs train the residual in, same philosophy as the sharpness jitter.
+    #
+    # Amplitude: scale EVERY sample's ink by uniform(ink_gain_min,
+    # ink_gain_max) so absolute amplitude is uninformative — min=max=1
+    # disables (the deployment proxy keeps stylus ink at 1.0). Uniform gain is
+    # identity-safe by construction (everything scales together, dakuten
+    # included).
+    ink_gain_min: float = 0.5
+    ink_gain_max: float = 1.0
+    # Resolution: with probability p_lowres, downscale to a random
+    # lowres_*_px long side and back (bilinear both ways) — the exact
+    # transform a small native glyph undergoes in normalizeCell. Floor at
+    # 28px: below that, dense bold kanji genuinely merge into homoglyphs
+    # (日/目-class ambiguity — the identity-preservation rule). Pixel values
+    # are at image_size=96, like the other px knobs.
+    p_lowres: float = 0.25
+    lowres_min_px: int = 28
+    lowres_max_px: int = 64
 
     # --- Residual clutter (the camera path shares this recognizer) -------- #
     # Camera mode cuts printed lines into per-character cells
@@ -408,6 +442,13 @@ VAL_POLICY = SynthesisPolicy(
     p_erode=0.0,
     sharpness_jitter_max=1.5,
     faux_bold_max=0,
+    # Photo-appearance knobs OFF: the deployment proxy is the stylus canvas
+    # (full-amplitude ink at native resolution). The camera axis is measured
+    # by the dedicated print/print-photo eval conditions instead.
+    p_ink_grain=0.0,
+    ink_gain_min=1.0,
+    ink_gain_max=1.0,
+    p_lowres=0.0,
     # The proxy stays clutter-free: best.pt must be selected on clean stylus
     # strokes (the primary Draw input), not on camera-junk robustness. The
     # dedicated `clutter` eval condition measures that axis separately.
@@ -466,4 +507,13 @@ def kana_render_policy(base: SynthesisPolicy) -> SynthesisPolicy:
         # upper-right corner is exactly what a dakuten looks like, so clutter
         # would teach か↔が confusion (the identity-preservation rule).
         p_clutter=0.0,
+        # Photo-appearance knobs, dampened for the same reason: aggressive
+        # low-res erases a dakuten outright (か↔が), and strong grain can dim
+        # one below the ink threshold. Uniform ink gain stays as-is — it
+        # scales all marks together, so it cannot erase one relative to
+        # another.
+        p_lowres=min(base.p_lowres, 0.15),
+        lowres_min_px=max(base.lowres_min_px, 36),
+        p_ink_grain=base.p_ink_grain * 0.5,
+        ink_grain_strength=min(base.ink_grain_strength, 0.15),
     )

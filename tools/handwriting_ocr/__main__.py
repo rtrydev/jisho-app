@@ -281,7 +281,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--condition",
         type=str,
         default="deployment",
-        help="Which distribution to score on: deployment (default) | clean | freehand | clutter | train | all.",
+        help=(
+            "Which distribution to score on: deployment (default) | clean | "
+            "freehand | clutter | print | print-bold | print-photo | train | "
+            "all. The print conditions render from fonts (run fetch-fonts "
+            "first)."
+        ),
     )
     sp.add_argument(
         "--samples-per-class",
@@ -309,7 +314,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser(
         "validate",
-        help="Compare candidate vs baseline ONNX on clean/freehand + box/hook clusters.",
+        help=(
+            "Compare candidate vs baseline ONNX on clean/freehand + box/hook "
+            "clusters + print (photo-mode letterform) rows."
+        ),
     )
     sp.add_argument(
         "--candidate",

@@ -24,7 +24,18 @@
 //   7. per-line projection-profile segmentation along the reading axis → cells
 //   8. geometric leak filter (drop sub-median edge cells within each line)
 //   9. normalize each cell to a 96×96 model input, excluding junk components
-//      that rode into the cell (they would shift/shrink the glyph in the fit)
+//      that rode into the cell (they would shift/shrink the glyph in the fit),
+//      and re-normalizing ink intensity so the glyph core sits at ≈1.0 (the
+//      soft foreground maps emit sub-unity cores on low-contrast photos, and
+//      sub-unity ink is far out of the training distribution — measured 98%→16%
+//      top-1 at ink×0.6 on bold faces, see tools/handwriting_ocr/PHOTO_PRINT_FINDINGS.md)
+//  10. when step 1 downscaled the crop, cut each cell from the ORIGINAL
+//      full-resolution pixels instead of the segmentation-scale map: per-cell
+//      foreground extraction on a small native crop, gated by the cleaned
+//      coarse map so the global cleanup decisions (rules, specks, furigana)
+//      still apply. Bold glyphs collapse below ~40px of height (counters fill
+//      in when resampled), so throwing away sensor resolution before the cell
+//      cut was the other measured photo-mode killer.
 //
 // Orientation is NOT auto-detected here: the camera UI gives the user a manual
 // horizontal/vertical guide-box toggle, so the reading axis is known and the
@@ -119,6 +130,21 @@ const MAX_READ_CELLS = 40;
 // used by the pitch refinement — see refineByPitch / projectionRuns.
 const SEG_SNAP_FRAC = 0.05;
 const MAX_CROP_DIM = 1080; // downscale ceiling so the pixel ops stay cheap
+// Cell intensity re-normalization (step 9). The recognizer was trained on ink
+// cores ≈1.0; the only dimming it ever saw is blur, which dims thin strokes
+// but never a filled bold region — so a low-contrast photo (soft-map cores
+// 0.4–0.8) collapses recognition, bold faces first. Each cell is rescaled so
+// the CORE_GAIN_PCT percentile of its component ink maps to 1.0. Component
+// pixels are > INK_THRESH by construction, which naturally caps the gain at
+// 1/INK_THRESH — background stays 0, so noise can't be amplified from nothing.
+const CORE_GAIN_PCT = 0.95;
+// Native-resolution cell cutting (step 10), active only when the crop was
+// downscaled. Per-cell extraction needs a ring of background around the glyph
+// for its statistics (borderMedian/Otsu), hence the em-relative margin. The
+// crop's long side is capped — the glyph lands on ≈73px of the 96px input, so
+// resolution beyond ~4× that is downsampled away anyway and only costs cycles.
+const NATIVE_MARGIN_EM = 0.3;
+const NATIVE_CELL_CAP = 384;
 
 // Glyph-likeness gate (text-presence detection). The recognizer is kanji-only
 // with no garbage class and a low-magnitude softmax, so it confidently mis-reads
@@ -157,26 +183,34 @@ function ctx2d(canvas: AnyCanvas, willReadFrequently = false): AnyCtx | null {
 // 1. downscale
 // --------------------------------------------------------------------------- //
 
-/** Cap the long side at MAX_CROP_DIM. A phone frame crop can be ~1000px+; the
- *  glyphs end up resampled to 96px anyway, so working at full res only burns
- *  cycles. Returns the input untouched when already small enough. */
+/** Bilinear-resample an ImageData via canvas. Null when no 2D context is
+ *  available (callers keep the original in that case). */
+function resizeImageData(image: ImageData, nw: number, nh: number): ImageData | null {
+  const src = makeCanvas(image.width, image.height);
+  const sctx = ctx2d(src);
+  if (!sctx) return null;
+  sctx.putImageData(image, 0, 0);
+  const dst = makeCanvas(nw, nh);
+  const dctx = ctx2d(dst, true);
+  if (!dctx) return null;
+  dctx.imageSmoothingEnabled = true;
+  dctx.imageSmoothingQuality = "high";
+  dctx.drawImage(src as CanvasImageSource, 0, 0, nw, nh);
+  return dctx.getImageData(0, 0, nw, nh);
+}
+
+/** Cap the long side at MAX_CROP_DIM for segmentation. A phone frame crop can
+ *  be several thousand px and the full-map pixel ops (foreground extraction,
+ *  component labelling) must stay cheap. Resolution is NOT lost to the model:
+ *  when this fires, cells are later re-cut from the original pixels (step 10 —
+ *  see nativeCell). Returns the input untouched when already small enough. */
 function maybeDownscale(image: ImageData): ImageData {
   const long = Math.max(image.width, image.height);
   if (long <= MAX_CROP_DIM) return image;
   const scale = MAX_CROP_DIM / long;
   const nw = Math.max(1, Math.round(image.width * scale));
   const nh = Math.max(1, Math.round(image.height * scale));
-  const src = makeCanvas(image.width, image.height);
-  const sctx = ctx2d(src);
-  if (!sctx) return image;
-  sctx.putImageData(image, 0, 0);
-  const dst = makeCanvas(nw, nh);
-  const dctx = ctx2d(dst, true);
-  if (!dctx) return image;
-  dctx.imageSmoothingEnabled = true;
-  dctx.imageSmoothingQuality = "high";
-  dctx.drawImage(src as CanvasImageSource, 0, 0, nw, nh);
-  return dctx.getImageData(0, 0, nw, nh);
+  return resizeImageData(image, nw, nh) ?? image;
 }
 
 // --------------------------------------------------------------------------- //
@@ -1081,6 +1115,19 @@ function bboxGap(a: Component, b: Component): number {
   return Math.max(gx, gy);
 }
 
+/** Intensity gain that maps a cell's glyph core to ≈1.0 (see CORE_GAIN_PCT).
+ *  `samples` are the ink values of the cell's included component pixels —
+ *  all > INK_THRESH by construction, so the gain is naturally bounded by
+ *  1/INK_THRESH. Never dims (gain ≥ 1): full-contrast input passes through
+ *  bit-identically. Exported for tests; mutates `samples` order (sorts). */
+export function coreGain(samples: number[]): number {
+  if (samples.length === 0) return 1;
+  samples.sort((a, b) => a - b);
+  const p = samples[Math.floor(CORE_GAIN_PCT * (samples.length - 1))];
+  if (p <= 0) return 1;
+  return Math.max(1, Math.min(1 / p, 1 / INK_THRESH));
+}
+
 /** Crop the cell to its own ink bbox, fit into the 96² square with MARGIN_FRAC,
  *  BILINEAR-resample (via canvas), and paste centered onto a zero canvas.
  *  Mirrors `probe.py::normalize_glyph` / preprocess.ts. Returns null when the
@@ -1150,6 +1197,21 @@ function normalizeCell(
   const cw = x1 - x0 + 1;
   const ch = y1 - y0 + 1;
 
+  // Contrast re-normalization (step 9): on a low-contrast photo the soft
+  // foreground map's cores sit well below 1.0, which the recognizer never saw
+  // in training. Rescale so the included components' core ink reads ≈1.0; the
+  // sub-threshold halo scales by the same gain, preserving the edge profile.
+  const samples: number[] = [];
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const label = labels[(y0 + y) * rw + (x0 + x)];
+      if (label > 0 && include[label - 1]) {
+        samples.push(ink[(region.y0 + y0 + y) * w + (region.x0 + x0 + x)]);
+      }
+    }
+  }
+  const gain = coreGain(samples);
+
   // Pack the cropped ink into an opaque grayscale ImageData (ink → bright on a
   // black canvas), so a single drawImage performs the BILINEAR downsample.
   // Pixels of excluded components are zeroed; background (label 0, incl. the
@@ -1163,7 +1225,7 @@ function normalizeCell(
         label > 0 && !include[label - 1]
           ? 0
           : ink[(region.y0 + y0 + y) * w + (region.x0 + x0 + x)];
-      const v = Math.min(255, Math.max(0, Math.round(raw * 255)));
+      const v = Math.min(255, Math.max(0, Math.round(raw * gain * 255)));
       const di = (y * cw + x) * 4;
       cd[di] = v;
       cd[di + 1] = v;
@@ -1197,6 +1259,170 @@ function normalizeCell(
     out[j] = px[i] / 255; // R channel == ink (already ink=1/bg=0)
   }
   return out;
+}
+
+// --------------------------------------------------------------------------- //
+// 6b. native-resolution cell cutting (step 10)
+// --------------------------------------------------------------------------- //
+//
+// When maybeDownscale fired, the segmentation-scale map has already thrown
+// away sensor resolution — a 100px-tall glyph in a 4000px frame becomes ~27px
+// at the 1080 cap, and bold letterforms collapse below ~40px (counters fill in
+// when resampled; see PHOTO_PRINT_FINDINGS.md). Re-running the WHOLE pipeline
+// at native size is not an option (full-frame component labelling allocates
+// frame-sized Int32Arrays — the memory profile that used to kill the tab on
+// phones), so segmentation stays at the capped size and only the per-cell
+// pixels are revisited: crop the region (plus a background margin for honest
+// extraction statistics) from the original ImageData, extract foreground on
+// that small crop, and gate the result by the cleaned coarse map so the
+// global cleanup decisions (frame-spanning rules, specks, furigana, leak
+// filtering) still hold at native resolution.
+
+/** Map a segmentation-scale region to native coordinates. `inner` is the
+ *  region itself; `outer` adds the NATIVE_MARGIN_EM background ring the
+ *  per-cell foreground statistics need (borderMedian / Otsu want the crop
+ *  border to be mostly paper). Both are clamped to the image. Exported for
+ *  tests. */
+export function mapRegionToNative(
+  region: Bbox,
+  kx: number,
+  ky: number,
+  em: number,
+  nativeW: number,
+  nativeH: number,
+): { outer: Bbox; inner: Bbox } {
+  const inner: Bbox = {
+    x0: Math.max(0, Math.floor(region.x0 * kx)),
+    x1: Math.min(nativeW, Math.ceil(region.x1 * kx)),
+    y0: Math.max(0, Math.floor(region.y0 * ky)),
+    y1: Math.min(nativeH, Math.ceil(region.y1 * ky)),
+  };
+  const m = Math.round(NATIVE_MARGIN_EM * em * Math.max(kx, ky));
+  const outer: Bbox = {
+    x0: Math.max(0, inner.x0 - m),
+    x1: Math.min(nativeW, inner.x1 + m),
+    y0: Math.max(0, inner.y0 - m),
+    y1: Math.min(nativeH, inner.y1 + m),
+  };
+  return { outer, inner };
+}
+
+/** Copy a sub-rectangle of an ImageData (no canvas, row-wise typed copy). */
+function cropImageData(image: ImageData, bb: Bbox): ImageData {
+  const cw = bb.x1 - bb.x0;
+  const ch = bb.y1 - bb.y0;
+  const out = new ImageData(cw, ch);
+  const src = image.data;
+  const dst = out.data;
+  for (let y = 0; y < ch; y++) {
+    const srcOff = ((bb.y0 + y) * image.width + bb.x0) * 4;
+    dst.set(src.subarray(srcOff, srcOff + cw * 4), y * cw * 4);
+  }
+  return out;
+}
+
+/** Zero native-crop ink with no support in the cleaned segmentation-scale map
+ *  (3×3 scaled-pixel neighborhood — the coarse map's σ≈0.5 blur plus the
+ *  neighborhood comfortably cover resampling misalignment at the edges of
+ *  kept ink). This re-applies every global cleanup decision to the per-cell
+ *  re-extraction: a rule remnant or speck that cleanComponents/pruneSpecksByEm
+ *  removed cannot reappear just because the cell was re-extracted natively.
+ *  Crop-local pixel (x, y) sits at native (originX + (x+0.5)·stepX, …) and
+ *  scaled (native / k). Only zeroes — never rescales kept ink. Exported for
+ *  tests. */
+export function gateByCoarse(
+  ink: Float32Array,
+  w: number,
+  h: number,
+  originX: number,
+  originY: number,
+  stepX: number,
+  stepY: number,
+  kx: number,
+  ky: number,
+  coarse: Float32Array,
+  cw: number,
+  ch: number,
+): Float32Array {
+  const out = ink.slice();
+  for (let y = 0; y < h; y++) {
+    const sy = Math.floor((originY + (y + 0.5) * stepY) / ky);
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (out[i] <= 0) continue;
+      const sx = Math.floor((originX + (x + 0.5) * stepX) / kx);
+      let keep = false;
+      for (let dy = -1; dy <= 1 && !keep; dy++) {
+        const yy = sy + dy;
+        if (yy < 0 || yy >= ch) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = sx + dx;
+          if (xx < 0 || xx >= cw) continue;
+          if (coarse[yy * cw + xx] > 0) {
+            keep = true;
+            break;
+          }
+        }
+      }
+      if (!keep) out[i] = 0;
+    }
+  }
+  return out;
+}
+
+/** Native-resolution counterpart of `normalizeCell(grid.ink, …)`: re-extracts
+ *  the cell from the original pixels and normalizes that instead. Null when
+ *  the cell is degenerate, no ink survives, or canvas is unavailable — the
+ *  caller falls back to the segmentation-scale cell, so this path can only
+ *  add resolution, never lose a read the old path would have made. */
+function nativeCell(
+  image: ImageData,
+  region: Bbox,
+  em: number,
+  kx: number,
+  ky: number,
+  coarse: Float32Array,
+  cw: number,
+  ch: number,
+  strategy: ForegroundStrategy,
+): Float32Array | null {
+  const { outer, inner } = mapRegionToNative(region, kx, ky, em, image.width, image.height);
+  if (inner.x1 - inner.x0 < 2 || inner.y1 - inner.y0 < 2) return null;
+  let crop = cropImageData(image, outer);
+  // Cap the working size: past ~4× the model's glyph box extra resolution is
+  // downsampled away inside normalizeCell anyway. step = native px per
+  // crop-local px after the cap (1 when uncapped).
+  let stepX = 1;
+  let stepY = 1;
+  const long = Math.max(crop.width, crop.height);
+  if (long > NATIVE_CELL_CAP) {
+    const s = NATIVE_CELL_CAP / long;
+    const nw = Math.max(1, Math.round(crop.width * s));
+    const nh = Math.max(1, Math.round(crop.height * s));
+    const resized = resizeImageData(crop, nw, nh);
+    if (resized) {
+      stepX = crop.width / nw;
+      stepY = crop.height / nh;
+      crop = resized;
+    }
+  }
+  let ink = FOREGROUND[strategy](crop);
+  ink = gateByCoarse(
+    ink, crop.width, crop.height,
+    outer.x0, outer.y0, stepX, stepY, kx, ky,
+    coarse, cw, ch,
+  );
+  ink = blur05(ink, crop.width, crop.height);
+  // The margin ring served the extraction statistics only; the cell content
+  // is the exact region, expressed in crop-local coordinates.
+  const innerLocal: Bbox = {
+    x0: Math.max(0, Math.floor((inner.x0 - outer.x0) / stepX)),
+    x1: Math.min(crop.width, Math.ceil((inner.x1 - outer.x0) / stepX)),
+    y0: Math.max(0, Math.floor((inner.y0 - outer.y0) / stepY)),
+    y1: Math.min(crop.height, Math.ceil((inner.y1 - outer.y0) / stepY)),
+  };
+  const emLocal = (em * (kx / stepX + ky / stepY)) / 2;
+  return normalizeCell(ink, crop.width, innerLocal, emLocal);
 }
 
 // --------------------------------------------------------------------------- //
@@ -1265,6 +1491,11 @@ export function imageToCells(
   const scaled = maybeDownscale(image);
   const w = scaled.width;
   const h = scaled.height;
+  // Native px per segmentation px (1 when no downscale happened). x and y are
+  // tracked separately — maybeDownscale rounds each dimension independently.
+  const downscaled = scaled !== image;
+  const kx = image.width / w;
+  const ky = image.height / h;
 
   let ink = FOREGROUND[strategy](scaled);
   ink = cleanComponents(ink, w, h);
@@ -1279,7 +1510,13 @@ export function imageToCells(
       : grid.regions;
   const cells: Float32Array[] = [];
   for (const region of regions) {
-    const cell = normalizeCell(grid.ink, w, region, grid.em);
+    // Downscaled crop → re-cut the cell from the original pixels (step 10);
+    // the segmentation-scale cell stays as the fallback (e.g. a cell whose
+    // per-cell extraction came out empty), so this never loses a read.
+    const cell =
+      (downscaled
+        ? nativeCell(image, region, grid.em, kx, ky, grid.ink, w, h, strategy)
+        : null) ?? normalizeCell(grid.ink, w, region, grid.em);
     // Keep only cells that structurally read as a character — drops blank/blob
     // cells from a non-text photo so the recognizer never fabricates a kanji
     // from one (it has no garbage class to reject it itself).

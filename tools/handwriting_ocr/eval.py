@@ -39,8 +39,10 @@ from .config import (
     TRAIN_POLICY,
     VAL_POLICY,
     SynthesisPolicy,
+    is_kana,
 )
 from .dataset import SyntheticKanjiDataset
+from .fonts import discover_japanese_fonts, filter_font_faces, rasterize_with_font
 from .model import build_model, param_count, select_device
 
 # Same seed the training driver pins its validation split to, so `eval`
@@ -55,8 +57,30 @@ CONDITIONS_HELP = {
     "deployment": "honest proxy: sharp↔soft spectrum + freehand + skew (ship gate)",
     "clean": "canonical glyphs, razor-sharp, no skew/freehand (shape ceiling)",
     "freehand": "razor-sharp + open corners + connections (real-handwriting proxy)",
+    "clutter": "deployment + residual border junk forced on (camera-junk proxy)",
+    "print": "fonts only, rigid + camera skew (photo-mode letterform proxy)",
+    "print-bold": "print restricted to bold-sans faces (the manga-dialogue gap)",
+    "print-photo": "print-bold + forced low-res + dim ink (the measured photo killers)",
     "train": "the heavy training distribution",
 }
+
+# Bold sans faces — the letterform slice photo mode reportedly fails on (bold
+# gothic manga dialogue). Substring-matched against font file stems, case-
+# insensitive (see fonts.filter_font_faces). Covers the bundled OFL pack plus
+# the Windows training host's system faces; extend alongside font_pack.py when
+# more bold-sans families are added.
+PRINT_BOLD_STEMS: tuple[str, ...] = (
+    "ZenMaruGothic-Bold",  # rounded sans bold (bundled pack)
+    "DelaGothicOne",       # ultra-heavy display gothic (bundled pack)
+    "YuGothB",             # Yu Gothic Bold (Windows system)
+    "meiryob",             # Meiryo Bold (Windows system)
+    # Hiragino Kaku Gothic bold weights (macOS system) — the closest installed
+    # match for bold manga/print dialogue gothic.
+    "ヒラギノ角ゴシック W6",
+    "ヒラギノ角ゴシック W7",
+    "ヒラギノ角ゴシック W8",
+    "ヒラギノ角ゴシック W9",
+)
 
 # Box/hook near-homoglyph clusters tracked in RECOGNIZER_CHALLENGES.md. The
 # recognizer's worst confusions live here; the per-condition cluster line in
@@ -144,11 +168,43 @@ def _conditions() -> dict[str, SynthesisPolicy]:
     # filtering can't remove from a cell — see NOISE_ROBUSTNESS.md). Measures
     # robustness to foreign ink; NOT the ship gate (that stays `deployment`).
     clutter = replace(VAL_POLICY, p_clutter=1.0)
+    # Photo-mode letterform proxy: what the camera path actually feeds the
+    # model — binarized FILLED PRINT glyphs, bbox-fit into 96² with no stroke-
+    # weight normalization (app/lib/handwriting/imagePreprocess.ts). Fonts
+    # only (p_kanjivg=0); print is rigid, so no elastic — geometric variety is
+    # camera tilt/perspective, which VAL_POLICY's moderate affine approximates.
+    # The sharpness spectrum stays (camera focus varies; the pipeline's σ≈0.5
+    # blur sits inside it). faux_bold/morphology stay 0 (inherited) so each
+    # face is measured at its natural weight, and clutter stays 0 — the
+    # `clutter` condition measures that axis separately. The stroke-path
+    # freehand knobs (endpoint/connection/jitter) are inert on the font path.
+    print_pol = replace(VAL_POLICY, p_kanjivg=0.0, p_elastic=0.0)
+    # The slice of `print` photo mode reportedly fails on: bold sans faces.
+    print_bold = replace(print_pol, font_stem_allow=PRINT_BOLD_STEMS)
+    # The measured photo-mode killers forced ON over the bold faces
+    # (PHOTO_PRINT_FINDINGS.md): every sample rendered small (low-res
+    # downscale-upscale) and dimmed (sub-unity gain), plus within-glyph
+    # gradients. This is deliberately harsh — the model that trained without
+    # the photo-appearance knobs scores low here; a retrain must raise it
+    # WITHOUT regressing `deployment` (the ship gate) or `print`.
+    print_photo = replace(
+        print_bold,
+        p_lowres=1.0,
+        lowres_min_px=28,
+        lowres_max_px=64,
+        ink_gain_min=0.45,
+        ink_gain_max=0.85,
+        p_ink_grain=0.5,
+        ink_grain_strength=0.25,
+    )
     return {
         "deployment": VAL_POLICY,
         "clean": clean,
         "freehand": freehand,
         "clutter": clutter,
+        "print": print_pol,
+        "print-bold": print_bold,
+        "print-photo": print_photo,
         "train": SYNTH_POLICY,
     }
 
@@ -243,6 +299,66 @@ def _cluster_report(
     return out
 
 
+def _face_label(path: Path, face_idx: int) -> str:
+    return f"{path.stem}#{face_idx}" if path.suffix.lower() == ".ttc" else path.stem
+
+
+def _char_seed(ch: str, s: int) -> int:
+    # Stable across processes (unlike hash(str), which is salted).
+    return VAL_SEED ^ (ord(ch) * 2654435761) ^ (s * 97)
+
+
+@torch.no_grad()
+def _font_report(
+    model: torch.nn.Module,
+    classes: list[str],
+    policy: SynthesisPolicy,
+    image_size: int,
+    *,
+    device: torch.device,
+    chars_per_face: int = 48,
+    samples: int = 2,
+) -> list[tuple[str, float, int]]:
+    """Per-font-face top-1 under a fonts-only policy, worst face first.
+
+    The same deterministic character sample + per-(char, sample) seeds are used
+    for every face and every model, so rows are directly comparable. Glyphs a
+    face doesn't cover (``rasterize_with_font`` renders empty) are skipped, not
+    counted as misses — ``n`` reports what actually rendered. Kanji only: kana
+    train under their own dampened policy and aren't the letterform gap being
+    attributed here."""
+    model.eval()
+    faces = filter_font_faces(discover_japanese_fonts(), policy.font_stem_allow)
+    pol = replace(policy, image_size=image_size)
+    pool = [c for c in classes if not is_kana(c)]
+    rng = random.Random(VAL_SEED)
+    chars = rng.sample(pool, min(chars_per_face, len(pool)))
+    idx_of = {c: i for i, c in enumerate(classes)}
+    out: list[tuple[str, float, int]] = []
+    for path, face_idx in faces:
+        xs: list[np.ndarray] = []
+        ys: list[int] = []
+        for ch in chars:
+            for s in range(samples):
+                r = random.Random(_char_seed(ch, s))
+                arr = rasterize_with_font(
+                    ch, path, image_size, index=face_idx, rng=r, policy=pol
+                )
+                if arr.max() <= 0:
+                    continue  # face lacks this glyph
+                xs.append(augment(arr, r, pol))
+                ys.append(idx_of[ch])
+        if not xs:
+            out.append((_face_label(path, face_idx), 0.0, 0))
+            continue
+        x = torch.from_numpy(np.stack(xs))[:, None].to(device)
+        y = torch.tensor(ys, device=device)
+        hits = int((model(x).argmax(1) == y).sum())
+        out.append((_face_label(path, face_idx), hits / len(ys), len(ys)))
+    out.sort(key=lambda r: r[1])
+    return out
+
+
 def run(
     *,
     arch: str = "simple_resnet",
@@ -309,6 +425,22 @@ def run(
             log_fn(f"!! unknown condition {name!r}; choose from {list(conds)} or 'all'")
             return 1
         policy = conds[name]
+        # Fonts-only conditions render nothing without a font pool — and the
+        # dataset would silently fall back to strokes, which is exactly the
+        # dishonest measurement these conditions exist to prevent.
+        is_print = policy.p_kanjivg <= 0.0
+        if is_print and not filter_font_faces(
+            discover_japanese_fonts(), policy.font_stem_allow
+        ):
+            log_fn(
+                f"\n!! condition {name!r} renders from fonts but none matched "
+                f"(filter={list(policy.font_stem_allow) or 'none'}).\n"
+                "   Run `python -m tools.handwriting_ocr fetch-fonts`, then check "
+                "`fonts --list`."
+            )
+            if condition == "all":
+                continue
+            return 1
         cand = _score(
             cand_model, classes, policy, cand_size, label="cand",
             samples_per_class=samples_per_class, workers=num_workers, device=device,
@@ -335,6 +467,26 @@ def run(
             f"  top-1 agreement: both={both:,}  neither={neither:,}  "
             f"candidate_only={cand_only:,}  baseline_only={base_only:,}{res_note}"
         )
+        if is_print:
+            # Per-face attribution table (replaces the cluster lines, which
+            # render from KanjiVG strokes and would mislabel a print condition).
+            cand_faces = _font_report(
+                cand_model, classes, policy, cand_size, device=device
+            )
+            base_faces = {
+                lbl: t1
+                for lbl, t1, _n in _font_report(
+                    base_model, classes, policy, base_size, device=device
+                )
+            }
+            log_fn(f"  per-face top-1 (worst first; {len(cand_faces)} faces):")
+            for lbl, t1, n in cand_faces:
+                bt1 = base_faces.get(lbl, 0.0)
+                log_fn(
+                    f"    {lbl:<36} cand {t1*100:5.1f}%   "
+                    f"base {bt1*100:5.1f}%   (n={n})"
+                )
+            continue
         # Confusion-cluster diagnostic — the headline weakness (box/hook
         # homoglyphs). top-1 / mean self-confidence on just those characters.
         cand_cl = _cluster_report(cand_model, classes, policy, cand_size, device=device)

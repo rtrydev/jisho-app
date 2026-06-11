@@ -296,6 +296,53 @@ def residual_clutter(arr: np.ndarray, rng: random.Random, policy: SynthesisPolic
     return out
 
 
+def random_lowres(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Downscale-then-upscale: a glyph whose native pixel size is below the
+    model input.
+
+    This is the exact transform a small camera glyph undergoes in
+    ``normalizeCell`` (bilinear both ways), and the measured cause of the
+    bold-sans photo collapse — thick strokes merge and counters fill in
+    (PHOTO_PRINT_FINDINGS.md: 98%→46% at 32px on bold faces). Runs after
+    clutter (in-cell junk shares the cell's resolution) and before blur (the
+    sharpness spectrum stays independently sampled on top).
+    """
+    pol = policy
+    if pol.p_lowres <= 0 or rng.random() >= pol.p_lowres:
+        return arr
+    h, w = arr.shape
+    target = rng.randint(pol.lowres_min_px, pol.lowres_max_px)
+    if target >= max(h, w):
+        return arr
+    scale = target / max(h, w)
+    nw = max(1, round(w * scale))
+    nh = max(1, round(h * scale))
+    img = _to_pil(arr).resize((nw, nh), Image.BILINEAR).resize((w, h), Image.BILINEAR)
+    return _from_pil(img)
+
+
+def random_ink_gain(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Uniform per-sample amplitude scale — make absolute ink level
+    uninformative.
+
+    The camera foreground maps emit sub-unity ink cores on low-contrast
+    photos; training only ever dimmed thin strokes (via blur), so dim filled
+    regions were out of distribution (PHOTO_PRINT_FINDINGS.md: 98%→16% at
+    ×0.6 on bold faces). Sampling gain on EVERY sample across the configured
+    range mirrors the sharpness-jitter fix: the model cannot key on
+    amplitude. ``ink_gain_min = ink_gain_max = 1`` disables. Runs last so
+    every augmentation product (clutter marks included) shares the sample's
+    amplitude, as in a real dimmed cell.
+    """
+    pol = policy
+    if pol.ink_gain_min >= 1.0 and pol.ink_gain_max >= 1.0:
+        return arr
+    g = rng.uniform(pol.ink_gain_min, pol.ink_gain_max)
+    if g >= 0.999:
+        return arr
+    return (arr * np.float32(g)).astype(np.float32)
+
+
 def random_cutout(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     """Erase a small rectangular region.
 
@@ -326,13 +373,18 @@ def augment(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH
     2. Elastic (smooth nonlinear warp on top)
     3. Morphology (thicken/thin strokes)
     4. Ink bleed (spread ink as if wet on paper)
-    5. Ink grain (along-stroke intensity variation)
+    5. Ink grain (along-stroke / within-glyph intensity variation)
     6. Pixel dropout (introduce ink breaks)
     7. Gaussian noise (sensor/scan noise)
     8. Residual clutter (foreign border marks — before blur so the marks
        share the sample's sharpness spectrum, like real cell junk does)
-    9. Blur (final softening)
-    10. Cutout (occlude a small region)
+    9. Low-res (downscale-upscale: small native glyphs — after clutter,
+       which shares the cell's resolution; before blur, which stays an
+       independent axis)
+    10. Blur (final softening)
+    11. Cutout (occlude a small region)
+    12. Ink gain (uniform amplitude — last, so the whole sample dims
+        together like a real low-contrast cell)
 
     All steps short-circuit when their probabilities don't fire, so a
     "no-op" pass is cheap.
@@ -345,6 +397,8 @@ def augment(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH
     arr = random_pixel_dropout(arr, rng, policy)
     arr = gaussian_noise(arr, rng, policy)
     arr = residual_clutter(arr, rng, policy)
+    arr = random_lowres(arr, rng, policy)
     arr = random_blur(arr, rng, policy)
     arr = random_cutout(arr, rng, policy)
+    arr = random_ink_gain(arr, rng, policy)
     return arr

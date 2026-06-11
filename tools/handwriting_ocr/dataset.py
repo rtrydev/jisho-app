@@ -25,7 +25,7 @@ from torch.utils.data import Dataset
 
 from .augment import augment
 from .config import SYNTH_POLICY, SynthesisPolicy, is_kana, kana_render_policy
-from .fonts import discover_japanese_fonts, rasterize_with_font
+from .fonts import discover_japanese_fonts, filter_font_faces, rasterize_with_font
 from .kanjivg import has_strokes, rasterize_with_perturbation
 
 
@@ -75,7 +75,7 @@ class SyntheticKanjiDataset(Dataset):
         self._is_kana: list[bool] = [is_kana(c) for c in classes]
         self._epoch = 0
 
-        fonts = discover_japanese_fonts()
+        fonts = filter_font_faces(discover_japanese_fonts(), policy.font_stem_allow)
         # Each entry is (path, face_index). face_index distinguishes the
         # sub-faces packed inside .ttc files; it's 0 for plain TTF/OTF.
         self._fonts: list[tuple[Path, int]] = list(fonts)
@@ -132,15 +132,12 @@ class SyntheticKanjiDataset(Dataset):
                 ch, pol.image_size, rng=rng, policy=pol
             )
         if arr is None:
-            if not self._fonts:
-                # Defensive: KanjiVG should have covered this; if not, emit
-                # a blank rather than crash. Tests can catch this with the
-                # zero-image assertion in eval.
-                arr = np.zeros(
-                    (pol.image_size, pol.image_size),
-                    dtype=np.float32,
-                )
-            else:
+            # Font path. A face that passed discovery can still lack THIS
+            # glyph (partial-coverage "basic" fonts render it empty), and a
+            # blank image with a kanji label is label noise — re-pick a face a
+            # few times, then fall back to strokes rather than train on a
+            # blank.
+            for _ in range(3 if self._fonts else 0):
                 font_path, face_index = self._fonts[rng.randrange(len(self._fonts))]
                 arr = rasterize_with_font(
                     ch,
@@ -149,6 +146,21 @@ class SyntheticKanjiDataset(Dataset):
                     index=face_index,
                     rng=rng,
                     policy=pol,
+                )
+                if float(arr.max()) > 0.0:
+                    break
+                arr = None
+            if arr is None and self._has_kvg[class_idx]:
+                arr = rasterize_with_perturbation(
+                    ch, pol.image_size, rng=rng, policy=pol
+                )
+            if arr is None:
+                # Defensive: no font covers the glyph and KanjiVG has no
+                # strokes; emit a blank rather than crash. Tests can catch
+                # this with the zero-image assertion in eval.
+                arr = np.zeros(
+                    (pol.image_size, pol.image_size),
+                    dtype=np.float32,
                 )
 
         arr = augment(arr, rng, pol)
