@@ -13,7 +13,7 @@ import type { Candidate, Stroke } from "./types";
 import type { RecognizerResources } from "./loader";
 import { strokesToInput } from "./preprocess";
 import { recognize } from "./recognize";
-import { splitStrokesByBoundaries } from "./segment";
+import { pruneStrayStrokes, splitStrokesByBoundaries } from "./segment";
 import { predictBoundaries } from "./segmentStrip";
 
 async function recognizeGroup(
@@ -38,18 +38,24 @@ export async function recognizeMulti(
 ): Promise<Candidate[][]> {
   if (strokes.length === 0) return [];
 
+  // Drop stray ink (accidental dots far from the writing) before anything
+  // else — junk strokes skew both the segmenter strip and the bbox-fit of
+  // whichever character group they'd land in.
+  const cleaned = pruneStrayStrokes(strokes);
+  if (cleaned.length === 0) return [];
+
   // Ask the boundary model where characters split; degrade to "one character"
   // if it isn't loaded or errors at runtime (a segmentation failure must not
   // take down recognition itself).
   let boundaries: number[] = [];
   if (resources.segmenter) {
     try {
-      boundaries = await predictBoundaries(resources.segmenter, strokes);
+      boundaries = await predictBoundaries(resources.segmenter, cleaned);
     } catch (err) {
       console.warn("[handwriting] boundary prediction failed; recognizing as one character:", err);
     }
   }
-  const groups = splitStrokesByBoundaries(strokes, boundaries);
+  const groups = splitStrokesByBoundaries(cleaned, boundaries);
 
   const perGroup: (Candidate[] | null)[] = [];
   for (const group of groups) {

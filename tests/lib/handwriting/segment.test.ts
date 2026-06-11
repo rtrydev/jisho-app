@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   filterBoundariesByStrokes,
+  pruneStrayStrokes,
   splitStrokesByBoundaries,
 } from "../../../app/lib/handwriting/segment";
 import type { Stroke } from "../../../app/lib/handwriting/types";
@@ -177,5 +178,59 @@ describe("dakuten mark-merge veto (kana)", () => {
     const choon = hline(80, 180, 40);
     const out = splitStrokesByBoundaries([a, choon], [70]);
     expect(out).toEqual([[a], [choon]]);
+  });
+});
+
+describe("pruneStrayStrokes (accidental-dot veto)", () => {
+  // A character occupying the upper-left of a ~300px canvas; em (core height)
+  // is 150, so tiny = dims < 15 and far = gap > 45.
+  const body1 = seg(50, 50, 200, 200);
+  const body2 = seg(50, 200, 200, 50);
+
+  it("drops a tiny stroke far from the writing (palm graze in a corner)", () => {
+    const stray = seg(290, 290, 294, 294);
+    expect(pruneStrayStrokes([body1, body2, stray])).toEqual([body1, body2]);
+  });
+
+  it("keeps a tiny stroke near the character (dakuten / the dot of 犬)", () => {
+    const dakuten = seg(210, 60, 222, 72); // 10px to the right of the body
+    const dot = seg(160, 40, 170, 48); // just above it
+    expect(pruneStrayStrokes([body1, body2, dakuten, dot])).toEqual([
+      body1,
+      body2,
+      dakuten,
+      dot,
+    ]);
+  });
+
+  it("never drops a non-tiny stroke, however far away (a second character)", () => {
+    const second = seg(600, 50, 700, 200);
+    expect(pruneStrayStrokes([body1, second])).toEqual([body1, second]);
+  });
+
+  it("leaves a lone stroke alone (a deliberate 丶)", () => {
+    const dot = seg(150, 150, 156, 156);
+    expect(pruneStrayStrokes([dot])).toEqual([dot]);
+  });
+
+  it("leaves an all-tiny drawing alone (a drawing that just started)", () => {
+    const a = seg(100, 100, 106, 106);
+    const b = seg(200, 200, 206, 206);
+    expect(pruneStrayStrokes([a, b])).toEqual([a, b]);
+  });
+
+  it("leaves degenerate flat geometry alone (em below the floor)", () => {
+    const flat1 = hline(0, 100, 10);
+    const flat2 = hline(120, 130, 12); // small, but the em is ~2px — no basis to judge
+    expect(pruneStrayStrokes([flat1, flat2])).toEqual([flat1, flat2]);
+  });
+
+  it("drops multiple strays in one pass (they can't shelter each other)", () => {
+    const strayA = seg(280, 280, 286, 286);
+    const strayB = seg(292, 292, 298, 298); // near strayA, far from the body
+    expect(pruneStrayStrokes([body1, body2, strayA, strayB])).toEqual([
+      body1,
+      body2,
+    ]);
   });
 });

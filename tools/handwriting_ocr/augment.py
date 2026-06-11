@@ -248,6 +248,54 @@ def ink_grain(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYN
     return np.clip(modulated, 0.0, 1.0).astype(np.float32)
 
 
+def residual_clutter(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
+    """Add a few small foreign marks (dots / short bars) in the border band.
+
+    Models the junk the camera path can't filter out of a cell: a fleck of
+    the neighbouring character across the segmentation cut, a rule/underline
+    remnant, dust beside a stroke. After the cell's bbox fit such junk sits at
+    the periphery of the 96² input, so marks are confined to the outer
+    ``clutter_edge_band_frac`` band — they never overwrite the glyph's
+    interior, which keeps the label valid (see the identity-preservation rule
+    in config.SynthesisPolicy). Kana samples run with ``p_clutter=0``
+    (dakuten look-alikes — see config.kana_render_policy).
+    """
+    pol = policy
+    if pol.p_clutter <= 0 or rng.random() >= pol.p_clutter:
+        return arr
+    h, w = arr.shape
+    band_h = max(2, int(round(pol.clutter_edge_band_frac * h)))
+    band_w = max(2, int(round(pol.clutter_edge_band_frac * w)))
+    out = arr.copy()
+    for _ in range(rng.randint(1, max(1, pol.clutter_max_marks))):
+        size = max(1, int(round(
+            rng.uniform(pol.clutter_mark_frac_min, pol.clutter_mark_frac_max) * min(w, h)
+        )))
+        mw, mh = size, size
+        if rng.random() < 0.5:  # short bar: stretch one axis
+            stretch = rng.uniform(2.0, 4.0)
+            if rng.random() < 0.5:
+                mw = int(round(size * stretch))
+            else:
+                mh = int(round(size * stretch))
+        mw, mh = min(mw, w), min(mh, h)
+        edge = rng.randrange(4)  # 0 top, 1 bottom, 2 left, 3 right
+        if edge in (0, 1):
+            # Clamp the inward extent to the band: a bar reaching past it into
+            # the glyph area would read as an extra stroke (identity hazard).
+            mh = min(mh, band_h)
+            x0 = rng.randint(0, w - mw)
+            y0 = rng.randint(0, band_h - mh) if edge == 0 else rng.randint(h - band_h, h - mh)
+        else:
+            mw = min(mw, band_w)
+            y0 = rng.randint(0, h - mh)
+            x0 = rng.randint(0, band_w - mw) if edge == 2 else rng.randint(w - band_w, w - mw)
+        intensity = rng.uniform(0.55, 1.0)
+        region = out[y0:y0 + mh, x0:x0 + mw]
+        np.maximum(region, np.float32(intensity), out=region)
+    return out
+
+
 def random_cutout(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH_POLICY) -> np.ndarray:
     """Erase a small rectangular region.
 
@@ -281,8 +329,10 @@ def augment(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH
     5. Ink grain (along-stroke intensity variation)
     6. Pixel dropout (introduce ink breaks)
     7. Gaussian noise (sensor/scan noise)
-    8. Blur (final softening)
-    9. Cutout (occlude a small region)
+    8. Residual clutter (foreign border marks — before blur so the marks
+       share the sample's sharpness spectrum, like real cell junk does)
+    9. Blur (final softening)
+    10. Cutout (occlude a small region)
 
     All steps short-circuit when their probabilities don't fire, so a
     "no-op" pass is cheap.
@@ -294,6 +344,7 @@ def augment(arr: np.ndarray, rng: random.Random, policy: SynthesisPolicy = SYNTH
     arr = ink_grain(arr, rng, policy)
     arr = random_pixel_dropout(arr, rng, policy)
     arr = gaussian_noise(arr, rng, policy)
+    arr = residual_clutter(arr, rng, policy)
     arr = random_blur(arr, rng, policy)
     arr = random_cutout(arr, rng, policy)
     return arr

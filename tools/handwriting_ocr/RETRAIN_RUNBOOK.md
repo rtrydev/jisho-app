@@ -109,6 +109,10 @@ python -m tools.handwriting_ocr validate \
 - If the `freehand` cluster numbers got *worse*, the freehand-realism knobs
   (`endpoint_overshoot_px`, `p_connect_strokes` in `config.py`) are too
   aggressive — dial them down and re-train.
+- The next retrain also picks up the **residual-clutter** knob (`p_clutter`,
+  camera-junk robustness — see `NOISE_ROBUSTNESS.md`). Check the `clutter`
+  eval condition improves; if `clean` regressed instead, dial `p_clutter`
+  down and re-train.
 
 ### 4b. (optional) PyTorch head-to-head, if you still have the old checkpoint
 Only works if a pre-retrain `best.pt` exists (it is **not** in the repo). If you

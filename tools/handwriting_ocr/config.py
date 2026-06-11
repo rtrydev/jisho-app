@@ -230,6 +230,29 @@ class SynthesisPolicy:
     p_cutout: float = 0.0
     cutout_frac_max: float = 0.0
 
+    # --- Residual clutter (the camera path shares this recognizer) -------- #
+    # Camera mode cuts printed lines into per-character cells
+    # (app/lib/handwriting/imagePreprocess.ts). Its input-side junk filtering
+    # (speck pruning, per-cell component exclusion — see NOISE_ROBUSTNESS.md)
+    # removes most non-glyph ink, but junk that touches or hugs a character
+    # survives into the 96² cell: a fleck of the neighbouring character across
+    # the cut, an underline/rule remnant, dust beside a stroke. A model that
+    # never saw foreign ink treats such a cell as OOD and the read collapses.
+    # With probability p_clutter, add 1..clutter_max_marks small foreign marks
+    # (dots / short bars) confined to the border band of the image — after the
+    # bbox fit that is where in-cell junk actually lands — so the model learns
+    # to read the central glyph through peripheral junk. Identity-safe by
+    # construction: marks stay in the border band, never inside the glyph, and
+    # kana render with p_clutter=0 because a border mark at a kana's top-right
+    # is a dakuten look-alike (see kana_render_policy). Like every knob here
+    # this only takes effect at the next retrain; the shipped ONNX is
+    # unchanged until then.
+    p_clutter: float = 0.12
+    clutter_max_marks: int = 3
+    clutter_mark_frac_min: float = 0.02   # mark size, fraction of image_size
+    clutter_mark_frac_max: float = 0.08
+    clutter_edge_band_frac: float = 0.12  # marks stay inside this outer band
+
 
 @dataclass(frozen=True)
 class TrainPolicy:
@@ -385,6 +408,10 @@ VAL_POLICY = SynthesisPolicy(
     p_erode=0.0,
     sharpness_jitter_max=1.5,
     faux_bold_max=0,
+    # The proxy stays clutter-free: best.pt must be selected on clean stylus
+    # strokes (the primary Draw input), not on camera-junk robustness. The
+    # dedicated `clutter` eval condition measures that axis separately.
+    p_clutter=0.0,
 )
 TRAIN_POLICY = TrainPolicy()
 EXPORT_POLICY = ExportPolicy()
@@ -435,4 +462,8 @@ def kana_render_policy(base: SynthesisPolicy) -> SynthesisPolicy:
         # Keep the two dakuten marks from blurring/eroding into nothing.
         sharpness_jitter_max=min(base.sharpness_jitter_max, 1.0),
         p_erode=0.0,
+        # No clutter marks on kana: a small foreign mark near a kana's
+        # upper-right corner is exactly what a dakuten looks like, so clutter
+        # would teach か↔が confusion (the identity-preservation rule).
+        p_clutter=0.0,
     )

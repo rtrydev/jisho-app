@@ -422,7 +422,7 @@ export function KanjiScreen({
       : mode === "draw"
         ? "Draw a character in the box above — kanji and kana are read; candidates appear as you complete each stroke."
         : mode === "camera"
-          ? "Capture a line of text with the camera above — candidates appear after the shot. Mixed kana+kanji opens in Read."
+          ? "Capture text with the camera above — multiple lines are read in order; candidates appear after the shot. Mixed kana+kanji opens in Read."
           : "Select radicals from the panel above. Adding a radical narrows the matching kanji; incompatible radicals dim out.";
 
   // The Camera segment only appears on mobile with a usable camera; everything
@@ -923,7 +923,7 @@ function CameraPanel({
 
       <p className="ks-cam-hint ink-faint">
         {phase !== "captured"
-          ? "Frame a line of kanji inside the box and tap the shutter. Kana isn’t read — kanji only."
+          ? "Frame the text inside the box and tap the shutter. Multiple lines are fine — vertical columns read right to left."
           : !busy && resultCount === 0
             ? "No kanji found in the box — reframe or drag the box over the writing, then it re-reads."
             : "Drag the box to fine-tune what's read — it re-reads when you let go."}

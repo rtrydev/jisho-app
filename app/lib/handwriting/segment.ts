@@ -98,6 +98,22 @@ export function filterBoundariesByStrokes(
   return boundaries.filter((x) => !boundaryCrossedByStroke(strokes, x, tol));
 }
 
+// Stray-ink veto. An accidental touch (palm graze, a tap while repositioning)
+// leaves a tiny stroke far from the writing; it then either becomes a phantom
+// "character" group of its own or, worse, lands in a real character's group
+// and inflates its bbox so the glyph shrinks/offsets inside the 96² model
+// input. A stray is recognized by being BOTH tiny relative to the em AND far
+// from the union of the real (non-tiny) strokes — a dakuten or the dot of 犬
+// is tiny but always hugs its base, so distance is what separates "mark" from
+// "junk". Tiny strokes near the core, and all non-tiny strokes, are untouched.
+/** A stroke is "tiny" when its bbox is below this fraction of the em on BOTH
+ *  axes. Comfortably above a dakuten mark is NOT needed here — tiny strokes
+ *  are only dropped when they are also far away (see STRAY_GAP_FRAC). */
+const STRAY_MAX_DIM_FRAC = 0.1;
+/** ...and "far" when its bbox sits more than this fraction of the em from the
+ *  union bbox of the non-tiny strokes (max axis gap). */
+const STRAY_GAP_FRAC = 0.3;
+
 type GroupBounds = { minX: number; maxX: number; minY: number; maxY: number };
 
 function groupBounds(group: Stroke[]): GroupBounds {
@@ -145,6 +161,45 @@ function mergeMarkGroups(groups: Stroke[][], all: Stroke[]): Stroke[][] {
     }
   }
   return out;
+}
+
+/**
+ * Drop stray strokes (accidental dots/taps) before segmentation: a stroke that
+ * is tiny relative to the em AND far from the union bbox of the non-tiny
+ * strokes (see the STRAY_* note above). Pure and conservative:
+ *   • with fewer than 2 strokes, or when every stroke is tiny, nothing is
+ *     dropped (a deliberate 丶 or a just-started drawing must survive);
+ *   • degenerate/zero-extent geometry (em below MARK_MIN_EM) is left alone,
+ *     mirroring mergeMarkGroups.
+ * Run BEFORE boundary prediction so junk can't skew the segmenter strip either.
+ */
+export function pruneStrayStrokes(strokes: Stroke[]): Stroke[] {
+  const live = strokes.filter((s) => s.length > 0);
+  if (live.length < 2) return strokes;
+  const em = drawingHeight(live);
+  if (em < MARK_MIN_EM) return strokes;
+
+  const isTiny = (s: Stroke) => {
+    const b = groupBounds([s]);
+    return (
+      b.maxX - b.minX < STRAY_MAX_DIM_FRAC * em &&
+      b.maxY - b.minY < STRAY_MAX_DIM_FRAC * em
+    );
+  };
+  const core = live.filter((s) => !isTiny(s));
+  if (core.length === 0) return strokes;
+  const cb = groupBounds(core);
+  // Recompute the em from the real writing — a far stray below the line
+  // inflates drawingHeight(live), which would also inflate the gap tolerance.
+  const coreEm = Math.max(cb.maxY - cb.minY, MARK_MIN_EM);
+
+  return live.filter((s) => {
+    if (!isTiny(s)) return true;
+    const b = groupBounds([s]);
+    const gx = Math.max(0, Math.max(cb.minX - b.maxX, b.minX - cb.maxX));
+    const gy = Math.max(0, Math.max(cb.minY - b.maxY, b.minY - cb.maxY));
+    return Math.max(gx, gy) <= STRAY_GAP_FRAC * coreEm;
+  });
 }
 
 /**

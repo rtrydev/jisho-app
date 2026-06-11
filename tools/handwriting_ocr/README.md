@@ -180,7 +180,9 @@ comparable to a 64px baseline. The output reports top-1/top-5 for both, a
 per-sample agreement tally, and a **per-cluster (box/hook) top-1 + confidence
 line** — the headline confusion diagnostic (see `RECOGNIZER_CHALLENGES.md`).
 Conditions: `deployment` (honest proxy), `clean` (sharp canonical ceiling),
-`freehand` (real-handwriting proxy: sharp + open corners + connections), `train`.
+`freehand` (real-handwriting proxy: sharp + open corners + connections),
+`clutter` (camera-junk proxy: deployment + residual border marks — see
+`NOISE_ROBUSTNESS.md`), `train`.
 
 > **Why this exists:** a prior run shipped-by-mistake-criteria — it was selected
 > on a font/ink/cutout-heavy val set the canvas never produces, and lost badly

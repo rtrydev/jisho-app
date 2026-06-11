@@ -12,11 +12,17 @@
 // Pipeline, given a cropped guide-box ImageData and the reading axis:
 //   1. (optional) downscale the crop so the pixel ops stay cheap on a phone
 //   2. foreground extraction → soft ink map in [0,1], ink=1, bg=0
-//   3. connected-component cleanup (drop frame-spanning rules + tiny specks)
+//   3. connected-component cleanup (drop frame-spanning rules + micro-specks)
 //   4. mild Gaussian (σ≈0.5) to restore the anti-aliased edge the model expects
-//   5. projection-profile segmentation along the reading axis → cells
-//   6. geometric leak filter (drop sub-median edge cells)
-//   7. normalize each cell to a 96×96 model input
+//   5. line segmentation: cross-axis projection → one band per text line
+//      (rows for horizontal text; columns for vertical, read right-to-left),
+//      with noise-band and clipped-edge-line filters
+//   6. glyph-scale speck pruning — the line height (em) is known now, so
+//      "speck" can finally mean "small relative to a character"
+//   7. per-line projection-profile segmentation along the reading axis → cells
+//   8. geometric leak filter (drop sub-median edge cells within each line)
+//   9. normalize each cell to a 96×96 model input, excluding junk components
+//      that rode into the cell (they would shift/shrink the glyph in the fit)
 //
 // Orientation is NOT auto-detected here: the camera UI gives the user a manual
 // horizontal/vertical guide-box toggle, so the reading axis is known and the
@@ -39,8 +45,40 @@ const MARGIN_FRAC = 0.12; // §3a — matches preprocess.ts + training rasterize
 const INK_THRESH = 0.18; // §3a/§4 — "ink" cutoff on the soft map
 const GAP_FRAC = 0.1; // §5 — projection valley cut at 10% of the peak
 const MIN_RUN_FRAC = 0.12; // §5 — drop runs < 12% of the longest (noise/slivers)
-const SPECK_AREA_FRAC = 0.0008; // §4 — components smaller than this are specks
 const LEAK_EDGE_FRAC = 0.5; // edge cell < 0.5× median extent → treat as a leak
+// Pass-1 speck floor (cleanComponents, before any glyph scale is known). This
+// only drops sensor-grade micro-noise: an image-relative threshold (the old
+// 0.0008·w·h) assumed one full-height line and over-prunes the moment the crop
+// holds several smaller lines — on a dense crop it is bigger than a dakuten or
+// a thin stroke of a small glyph. The real, glyph-relative speck cut happens in
+// segmentGrid once line detection has produced an em estimate.
+const TINY_SPECK_FLOOR_FRAC = 0.00003;
+const TINY_SPECK_MIN_AREA = 4; // px², absolute floor for tiny crops
+// Glyph-relative speck pruning (after line detection): components smaller than
+// this fraction of em² are noise. Sized to stay well below a dakuten mark
+// (~0.003–0.008·em²) while catching dust/JPEG junk (≲0.0005·em²).
+const SPECK_EM_FRAC = 0.0015;
+// Line-band detection along the cross axis. Valleys between text lines are
+// true whitespace (~0 mass), so the cut threshold is much lower than the
+// per-character GAP_FRAC — a sparse line (one char) must survive next to a
+// dense one (many chars), and their row-mass can differ by >10×.
+const LINE_GAP_FRAC = 0.02;
+// A band whose total ink mass is far below the densest band's is a noise band
+// (a cluster of surviving specks, a smudge), not a sparse text line: even a
+// single-character line keeps several % of a 15-character line's mass.
+const LINE_MIN_MASS_FRAC = 0.015;
+// A first/last band that *touches the crop edge* and is well under the median
+// band extent is a neighbouring line the guide box sliced through — the line-
+// level analogue of the per-cell leak filter. The edge-touch requirement
+// spares legitimately thin interior bands (a line of 一二三 is a thin band that
+// sits away from the edges). Touch tolerance covers the σ≈0.5 blur spread.
+const EDGE_TOUCH_PX = 2;
+// Per-cell junk exclusion (normalizeCell). A component well below the cell's
+// dominant component (< 5% of its area) that also sits clear of the glyph core
+// is junk that rode into the cell; legitimate detached parts (dakuten, the
+// dots of 心, い's second stroke) are either not that small or hug the core.
+const CELL_MINOR_AREA_FRAC = 0.05;
+const CELL_CORE_GAP_FRAC = 0.12; // ..."clear of" = farther than this × em
 // Light smoothing (as a fraction of glyph size) for the valley-snapping profile
 // used by the pitch refinement — see refineByPitch / projectionRuns.
 const SEG_SNAP_FRAC = 0.05;
@@ -430,15 +468,17 @@ function labelComponents(
 }
 
 /** Drop components that bridge the whole frame while staying thin (rules /
- *  colour bands / page edges) or that are tiny specks. Mirrors
- *  `probe.py::clean_components`. Mutates a copy of `ink`. */
+ *  colour bands / page edges) or that are micro-specks. Mirrors
+ *  `probe.py::clean_components`, except the speck floor is now scale-
+ *  independent — glyph-relative speck pruning happens later in segmentGrid,
+ *  once line detection has established the em (see TINY_SPECK_FLOOR_FRAC). */
 function cleanComponents(ink: Float32Array, w: number, h: number): Float32Array {
   const mask = new Uint8Array(ink.length);
   for (let j = 0; j < ink.length; j++) mask[j] = ink[j] > INK_THRESH ? 1 : 0;
   const { labels, comps } = labelComponents(mask, w, h);
   if (comps.length === 0) return ink;
   const out = ink.slice();
-  const speck = SPECK_AREA_FRAC * w * h;
+  const speck = Math.max(TINY_SPECK_MIN_AREA, TINY_SPECK_FLOOR_FRAC * w * h);
   const drop = new Uint8Array(comps.length + 1); // 1-indexed labels
   for (let c = 0; c < comps.length; c++) {
     const { area, x0, x1, y0, y1 } = comps[c];
@@ -496,7 +536,7 @@ function blur05(ink: Float32Array, w: number, h: number): Float32Array {
 // 5. projection-profile segmentation + leak filter
 // --------------------------------------------------------------------------- //
 
-type Bbox = { x0: number; x1: number; y0: number; y1: number };
+export type Bbox = { x0: number; x1: number; y0: number; y1: number };
 
 function inkBbox(ink: Float32Array, w: number, h: number): Bbox | null {
   let x0 = w;
@@ -506,6 +546,27 @@ function inkBbox(ink: Float32Array, w: number, h: number): Bbox | null {
   for (let y = 0; y < h; y++) {
     const row = y * w;
     for (let x = 0; x < w; x++) {
+      if (ink[row + x] > INK_THRESH) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return null;
+  return { x0, x1: x1 + 1, y0, y1: y1 + 1 };
+}
+
+/** Tight ink bbox restricted to `region`. Null when the region has no ink. */
+function inkBboxIn(ink: Float32Array, w: number, region: Bbox): Bbox | null {
+  let x0 = region.x1;
+  let x1 = -1;
+  let y0 = region.y1;
+  let y1 = -1;
+  for (let y = region.y0; y < region.y1; y++) {
+    const row = y * w;
+    for (let x = region.x0; x < region.x1; x++) {
       if (ink[row + x] > INK_THRESH) {
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
@@ -549,8 +610,18 @@ type Run = { a: number; b: number }; // [a, b) along the reading axis (bbox-loca
 
 /** Projection-profile split (`probe.py::seg_proj`): ink mass along the reading
  *  axis, cut at valleys below GAP_FRAC×peak, dropping runs under MIN_RUN_FRAC of
- *  the longest. Returns runs in reading order, in bbox-local coordinates. */
-function projectionRuns(ink: Float32Array, w: number, bb: Bbox, axis: ReadAxis): Run[] {
+ *  the longest. Returns runs in reading order, in bbox-local coordinates.
+ *  `perpOverride` supplies the character-pitch reference (the em) when the
+ *  caller knows it better than this bbox does — a line whose own ink band is
+ *  thin (一二三) must still be cut at the *line-height* pitch, not its band
+ *  thickness, or the pitch refinement shreds every wide glyph. */
+function projectionRuns(
+  ink: Float32Array,
+  w: number,
+  bb: Bbox,
+  axis: ReadAxis,
+  perpOverride?: number,
+): Run[] {
   const bw = bb.x1 - bb.x0;
   const bh = bb.y1 - bb.y0;
   const len = axis === "h" ? bw : bh;
@@ -567,7 +638,7 @@ function projectionRuns(ink: Float32Array, w: number, bb: Bbox, axis: ReadAxis):
       for (let x = bb.x0; x < bb.x1; x++) prof[y - bb.y0] += ink[row + x];
     }
   }
-  const perp = axis === "h" ? bh : bw;
+  const perp = perpOverride ?? (axis === "h" ? bh : bw);
   const smoothed = gaussian1d(prof, Math.max(1, len * 0.01));
   let peak = 0;
   for (let i = 0; i < len; i++) if (smoothed[i] > peak) peak = smoothed[i];
@@ -661,33 +732,251 @@ function dropLeakRuns(runs: Run[]): Run[] {
 }
 
 // --------------------------------------------------------------------------- //
+// 5b. line segmentation (multi-line support) + glyph-scale speck pruning
+// --------------------------------------------------------------------------- //
+
+/** Split the ink bbox into text-line bands along the CROSS axis: horizontal
+ *  text projects onto y (one band per row of text), vertical text onto x (one
+ *  band per column). Valleys between lines are true whitespace, so the cut
+ *  threshold is LINE_GAP_FRAC (not the per-character GAP_FRAC — see the
+ *  constants). Bands come back in ascending coordinate order, bbox-local. */
+function lineBands(
+  ink: Float32Array,
+  w: number,
+  h: number,
+  bb: Bbox,
+  axis: ReadAxis,
+): Run[] {
+  const cross0 = axis === "h" ? bb.y0 : bb.x0;
+  const len = axis === "h" ? bb.y1 - bb.y0 : bb.x1 - bb.x0;
+  if (len <= 0) return [];
+  const prof = new Float32Array(len);
+  for (let y = bb.y0; y < bb.y1; y++) {
+    const row = y * w;
+    for (let x = bb.x0; x < bb.x1; x++) {
+      prof[axis === "h" ? y - bb.y0 : x - bb.x0] += ink[row + x];
+    }
+  }
+  const smoothed = gaussian1d(prof, Math.max(1, len * 0.01));
+  let peak = 0;
+  for (let i = 0; i < len; i++) if (smoothed[i] > peak) peak = smoothed[i];
+  const thr = LINE_GAP_FRAC * peak;
+  const runs: Run[] = [];
+  let start: number | null = null;
+  for (let i = 0; i < len; i++) {
+    const on = smoothed[i] >= thr;
+    if (on && start === null) start = i;
+    else if (!on && start !== null) {
+      runs.push({ a: start, b: i });
+      start = null;
+    }
+  }
+  if (start !== null) runs.push({ a: start, b: len });
+  if (runs.length <= 1) return runs;
+  // Noise bands: a band whose total mass is a sliver of the densest band's is
+  // surviving junk, not a sparse line. (Extent can't be the test — a line of
+  // thin bar-kanji is a legitimately thin band.)
+  const mass = runs.map((r) => {
+    let m = 0;
+    for (let i = r.a; i < r.b; i++) m += prof[i];
+    return m;
+  });
+  const maxMass = Math.max(...mass);
+  const kept = runs.filter((_, i) => mass[i] >= LINE_MIN_MASS_FRAC * maxMass);
+  return dropClippedEdgeBands(kept, cross0, axis === "h" ? h : w);
+}
+
+/** Line-level leak filter: drop a first/last band that touches the crop edge
+ *  and is well under the median band extent — a neighbouring line the guide
+ *  box sliced through. Interior bands and non-edge-touching bands are never
+ *  dropped, so a framed-but-thin line (一二三) survives. */
+function dropClippedEdgeBands(bands: Run[], cross0: number, crossEnd: number): Run[] {
+  if (bands.length < 2) return bands;
+  const extent = (r: Run) => r.b - r.a;
+  const touches = (r: Run) =>
+    cross0 + r.a <= EDGE_TOUCH_PX || cross0 + r.b >= crossEnd - EDGE_TOUCH_PX;
+  if (bands.length === 2) {
+    const [r0, r1] = bands;
+    if (touches(r0) && extent(r0) < LEAK_EDGE_FRAC * extent(r1)) return [r1];
+    if (touches(r1) && extent(r1) < LEAK_EDGE_FRAC * extent(r0)) return [r0];
+    return bands;
+  }
+  const extents = bands.map(extent).sort((p, q) => p - q);
+  const median = extents[extents.length >> 1];
+  let lo = 0;
+  let hi = bands.length;
+  if (touches(bands[lo]) && extent(bands[lo]) < LEAK_EDGE_FRAC * median) lo++;
+  if (hi - 1 > lo && touches(bands[hi - 1]) && extent(bands[hi - 1]) < LEAK_EDGE_FRAC * median)
+    hi--;
+  return bands.slice(lo, hi);
+}
+
+/** Zero every component smaller than SPECK_EM_FRAC × em² — the glyph-relative
+ *  speck cut that pass-1 cleanComponents can't make (no scale known there).
+ *  Returns `ink` untouched when nothing qualifies. */
+function pruneSpecksByEm(
+  ink: Float32Array,
+  w: number,
+  h: number,
+  em: number,
+): Float32Array {
+  const minArea = SPECK_EM_FRAC * em * em;
+  if (minArea <= 1) return ink;
+  const mask = new Uint8Array(ink.length);
+  for (let j = 0; j < ink.length; j++) mask[j] = ink[j] > INK_THRESH ? 1 : 0;
+  const { labels, comps } = labelComponents(mask, w, h);
+  const drop = new Uint8Array(comps.length + 1); // 1-indexed labels
+  let any = false;
+  for (let c = 0; c < comps.length; c++) {
+    if (comps[c].area < minArea) {
+      drop[c + 1] = 1;
+      any = true;
+    }
+  }
+  if (!any) return ink;
+  const out = ink.slice();
+  for (let j = 0; j < out.length; j++) {
+    if (drop[labels[j]]) out[j] = 0;
+  }
+  return out;
+}
+
+export type SegmentedGrid = {
+  /** One region per detected character, in reading order: horizontal text
+   *  reads lines top-to-bottom and characters left-to-right; vertical text
+   *  reads columns right-to-left and characters top-to-bottom. */
+  regions: Bbox[];
+  /** Line-height estimate (median line-band extent) in crop px. */
+  em: number;
+  /** The ink map after glyph-relative speck pruning — cells must be cut from
+   *  this, not the input, so pruned junk doesn't reappear in a cell. */
+  ink: Float32Array;
+};
+
+/**
+ * Pure multi-line segmentation core (exported for tests): cleaned ink map →
+ * per-character regions in reading order. Lines first (cross-axis bands),
+ * then characters within each line (reading-axis projection + pitch
+ * refinement + leak filter). A single-line crop yields one band whose em is
+ * its own extent, which reproduces the previous single-line behaviour.
+ */
+export function segmentGrid(
+  inkIn: Float32Array,
+  w: number,
+  h: number,
+  axis: ReadAxis,
+): SegmentedGrid {
+  const bb = inkBbox(inkIn, w, h);
+  if (!bb) return { regions: [], em: 0, ink: inkIn };
+  let bands = lineBands(inkIn, w, h, bb, axis);
+  // Tategaki columns read right-to-left; rows already come top-to-bottom.
+  if (axis === "v") bands = bands.slice().reverse();
+  const extents = bands.map((r) => r.b - r.a).sort((p, q) => p - q);
+  const em = extents.length
+    ? extents[extents.length >> 1]
+    : axis === "h"
+      ? bb.y1 - bb.y0
+      : bb.x1 - bb.x0;
+  const ink = pruneSpecksByEm(inkIn, w, h, em);
+
+  const regions: Bbox[] = [];
+  for (const band of bands) {
+    const bandRegion: Bbox =
+      axis === "h"
+        ? { x0: bb.x0, x1: bb.x1, y0: bb.y0 + band.a, y1: bb.y0 + band.b }
+        : { x0: bb.x0 + band.a, x1: bb.x0 + band.b, y0: bb.y0, y1: bb.y1 };
+    // Tight per-line bbox (post-pruning): keeps each cell's perpendicular
+    // extent to the line's own ink, so neighbouring lines can't bleed in.
+    const lineBb = inkBboxIn(ink, w, bandRegion);
+    if (!lineBb) continue;
+    const runs = dropLeakRuns(projectionRuns(ink, w, lineBb, axis, em));
+    for (const run of runs) {
+      regions.push(
+        axis === "h"
+          ? { x0: lineBb.x0 + run.a, x1: lineBb.x0 + run.b, y0: lineBb.y0, y1: lineBb.y1 }
+          : { x0: lineBb.x0, x1: lineBb.x1, y0: lineBb.y0 + run.a, y1: lineBb.y0 + run.b },
+      );
+    }
+  }
+  return { regions, em, ink };
+}
+
+// --------------------------------------------------------------------------- //
 // 6. normalize a cell → 96×96 model input
 // --------------------------------------------------------------------------- //
+
+/** Max axis-gap between two (inclusive-coordinate) component bboxes; 0 when
+ *  they touch or overlap. */
+function bboxGap(a: Component, b: Component): number {
+  const gx = Math.max(0, Math.max(b.x0 - a.x1, a.x0 - b.x1));
+  const gy = Math.max(0, Math.max(b.y0 - a.y1, a.y0 - b.y1));
+  return Math.max(gx, gy);
+}
 
 /** Crop the cell to its own ink bbox, fit into the 96² square with MARGIN_FRAC,
  *  BILINEAR-resample (via canvas), and paste centered onto a zero canvas.
  *  Mirrors `probe.py::normalize_glyph` / preprocess.ts. Returns null when the
- *  cell has no ink. */
+ *  cell has no ink.
+ *
+ *  Junk exclusion: noise that rode into the cell (a blob the speck pruning
+ *  couldn't catch, a fragment of a neighbouring character across the cut)
+ *  would inflate the crop bbox and shrink/offset the glyph inside the 96²
+ *  square — the dominant way residual noise breaks recognition. So the cell's
+ *  own components are labelled, and a component that is BOTH a sliver of the
+ *  dominant one (< CELL_MINOR_AREA_FRAC of its area) AND clear of the glyph
+ *  core (> CELL_CORE_GAP_FRAC × em away) is left out of the crop bbox and
+ *  zeroed in the copied pixels. Legitimate detached parts (dakuten, the dots
+ *  of 心, い's strokes) are bigger or hug the core, so they stay. */
 function normalizeCell(
   ink: Float32Array,
   w: number,
   region: Bbox,
+  em = 0,
 ): Float32Array | null {
-  // tight ink bbox within the cell region
-  let x0 = region.x1;
-  let x1 = region.x0 - 1;
-  let y0 = region.y1;
-  let y1 = region.y0 - 1;
-  for (let y = region.y0; y < region.y1; y++) {
-    const row = y * w;
-    for (let x = region.x0; x < region.x1; x++) {
-      if (ink[row + x] > INK_THRESH) {
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
-    }
+  const rw = region.x1 - region.x0;
+  const rh = region.y1 - region.y0;
+  if (rw <= 0 || rh <= 0) return null;
+  // Label the cell's components (region-local mask).
+  const mask = new Uint8Array(rw * rh);
+  for (let y = 0; y < rh; y++) {
+    const row = (region.y0 + y) * w + region.x0;
+    for (let x = 0; x < rw; x++) mask[y * rw + x] = ink[row + x] > INK_THRESH ? 1 : 0;
+  }
+  const { labels, comps } = labelComponents(mask, rw, rh);
+  if (comps.length === 0) return null;
+  let maxArea = 0;
+  for (const c of comps) maxArea = Math.max(maxArea, c.area);
+  const minorFloor = CELL_MINOR_AREA_FRAC * maxArea;
+  // Core = union bbox of the non-minor components.
+  let core: Component | null = null;
+  for (const c of comps) {
+    if (c.area < minorFloor) continue;
+    core = core
+      ? {
+          area: core.area + c.area,
+          x0: Math.min(core.x0, c.x0),
+          x1: Math.max(core.x1, c.x1),
+          y0: Math.min(core.y0, c.y0),
+          y1: Math.max(core.y1, c.y1),
+        }
+      : { ...c };
+  }
+  const gapTol = Math.max(2, CELL_CORE_GAP_FRAC * em);
+  const include = comps.map(
+    (c) =>
+      c.area >= minorFloor || em <= 0 || core === null || bboxGap(c, core) <= gapTol,
+  );
+  // Crop bbox = union of the included components (region-local, inclusive).
+  let x0 = rw;
+  let x1 = -1;
+  let y0 = rh;
+  let y1 = -1;
+  for (let c = 0; c < comps.length; c++) {
+    if (!include[c]) continue;
+    if (comps[c].x0 < x0) x0 = comps[c].x0;
+    if (comps[c].x1 > x1) x1 = comps[c].x1;
+    if (comps[c].y0 < y0) y0 = comps[c].y0;
+    if (comps[c].y1 > y1) y1 = comps[c].y1;
   }
   if (x1 < x0 || y1 < y0) return null;
   const cw = x1 - x0 + 1;
@@ -695,11 +984,18 @@ function normalizeCell(
 
   // Pack the cropped ink into an opaque grayscale ImageData (ink → bright on a
   // black canvas), so a single drawImage performs the BILINEAR downsample.
+  // Pixels of excluded components are zeroed; background (label 0, incl. the
+  // soft anti-aliased halo below INK_THRESH) is copied as-is.
   const crop = new ImageData(cw, ch);
   const cd = crop.data;
   for (let y = 0; y < ch; y++) {
     for (let x = 0; x < cw; x++) {
-      const v = Math.min(255, Math.max(0, Math.round(ink[(y0 + y) * w + (x0 + x)] * 255)));
+      const label = labels[(y0 + y) * rw + (x0 + x)];
+      const raw =
+        label > 0 && !include[label - 1]
+          ? 0
+          : ink[(region.y0 + y0 + y) * w + (region.x0 + x0 + x)];
+      const v = Math.min(255, Math.max(0, Math.round(raw * 255)));
       const di = (y * cw + x) * 4;
       cd[di] = v;
       cd[di + 1] = v;
@@ -786,6 +1082,9 @@ export type ImageToCellsOptions = {
 /**
  * Full camera pipeline: a cropped guide-box ImageData + the reading axis →
  * one 96×96 recognizer input per detected character, in reading order.
+ * Multi-line crops are supported: horizontal text reads lines top-to-bottom
+ * and characters left-to-right; vertical text reads columns right-to-left and
+ * characters top-to-bottom (see segmentGrid).
  *
  * Returns an empty array when no ink survives extraction (e.g. a blank frame).
  */
@@ -803,19 +1102,10 @@ export function imageToCells(
   ink = cleanComponents(ink, w, h);
   ink = blur05(ink, w, h);
 
-  const bb = inkBbox(ink, w, h);
-  if (!bb) return [];
-
-  const runs = dropLeakRuns(projectionRuns(ink, w, bb, axis));
+  const grid = segmentGrid(ink, w, h, axis);
   const cells: Float32Array[] = [];
-  for (const run of runs) {
-    // Each cell keeps the full perpendicular extent of the ink bbox; the run
-    // bounds the reading axis. normalizeCell re-crops to the cell's own ink.
-    const region: Bbox =
-      axis === "h"
-        ? { x0: bb.x0 + run.a, x1: bb.x0 + run.b, y0: bb.y0, y1: bb.y1 }
-        : { x0: bb.x0, x1: bb.x1, y0: bb.y0 + run.a, y1: bb.y0 + run.b };
-    const cell = normalizeCell(ink, w, region);
+  for (const region of grid.regions) {
+    const cell = normalizeCell(grid.ink, w, region, grid.em);
     // Keep only cells that structurally read as a character — drops blank/blob
     // cells from a non-text photo so the recognizer never fabricates a kanji
     // from one (it has no garbage class to reject it itself).

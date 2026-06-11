@@ -139,10 +139,16 @@ def _conditions() -> dict[str, SynthesisPolicy]:
         p_connect_strokes=0.18,
         connect_max_px=7.0,
     )
+    # Camera-junk proxy: the deployment distribution with residual clutter
+    # forced ON for every sample (border marks the camera pipeline's junk
+    # filtering can't remove from a cell — see NOISE_ROBUSTNESS.md). Measures
+    # robustness to foreign ink; NOT the ship gate (that stays `deployment`).
+    clutter = replace(VAL_POLICY, p_clutter=1.0)
     return {
         "deployment": VAL_POLICY,
         "clean": clean,
         "freehand": freehand,
+        "clutter": clutter,
         "train": SYNTH_POLICY,
     }
 

@@ -281,7 +281,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--condition",
         type=str,
         default="deployment",
-        help="Which distribution to score on: deployment (default) | clean | train | all.",
+        help="Which distribution to score on: deployment (default) | clean | freehand | clutter | train | all.",
     )
     sp.add_argument(
         "--samples-per-class",
