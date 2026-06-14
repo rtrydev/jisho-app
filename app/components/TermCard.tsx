@@ -13,18 +13,21 @@ export type CandidateRef = {
   /** Kana reading, when distinct from the headword. */
   reading?: string;
   /** Kind of underlying entry — controls the colorway of the candidate row
-   *  (vocab → indigo, grammar → seal). */
+    *  (vocab → indigo, grammar → seal). */
   kind: "vocab" | "grammar";
   /** POS tags for the matched sense — same shape as the top-level pos. */
   pos: string[];
-  /** First English gloss of the matched sense, used as a one-line
-   *  disambiguator next to the headword (e.g., "to give up; to abandon"). */
-  disambig?: string;
+  /** All unique English glosses from the entry, deduplicated across senses.
+    *  Rendered as a numbered list so the user can see every meaning variant. */
+  meanings: string[];
 };
 
 export type TermCardData = {
   id: string;
   type: "vocab" | "grammar";
+  /** Which entry kinds contributed candidates to this card. Used by the
+   *  UI filter so a merged vocab+grammar card appears in both views. */
+  types?: ("vocab" | "grammar")[];
   head: string;
   reading?: string;
   surface?: string;
@@ -112,7 +115,14 @@ export function TermCard({
                   {romanize(c.reading)}
                 </div>
               )}
-              {c.disambig && <div className="cand-disambig">{c.disambig}</div>}
+              <ol className="cand-meanings">
+                {c.meanings.map((m, mi) => (
+                  <li key={mi}>
+                    <span className="g-num">{mi + 1}</span>
+                    <span className="cand-meaning-text">{m}</span>
+                  </li>
+                ))}
+              </ol>
             </li>
           ))}
         </ol>

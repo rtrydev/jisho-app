@@ -141,9 +141,9 @@ function pickBest(a: PostingHit | null, b: PostingHit | null): PostingHit | null
   if (!b) return a;
   // More specific (longer phrase) matches win regardless of kind.
   if (a.matchTokens !== b.matchTokens) return a.matchTokens > b.matchTokens ? a : b;
-  // Same specificity: grammar wins ties — grammar is rarer and the match is
-  // therefore more informative when both kinds agree on the span.
-  if (a.kind !== b.kind) return a.kind === "grammar" ? a : b;
+  // Same specificity: vocab wins ties — it's the more common entry type and
+  // should be surfaced as the primary card style.
+  if (a.kind !== b.kind) return a.kind === "vocab" ? a : b;
   // Same specificity and kind: whichever has the higher top-posting score.
   return a.postings[0][2] >= b.postings[0][2] ? a : b;
 }
@@ -158,6 +158,10 @@ type WindowMatch = {
    *  twice in a sentence) share a single inverted card. */
   normalizedKey: string;
   hit: PostingHit;
+  /** Secondary hit of the opposite kind, when both vocab and grammar match
+   *  the same span. Used to build a second card so results aren't mutually
+   *  exclusive (e.g., "used" matches both vocab and grammar entries). */
+  altHit: PostingHit | null;
 };
 
 function findMatch(
@@ -175,8 +179,7 @@ function findMatch(
     if (normalized.length === 0) continue;
     const vocabHit = lookupKey(glossIndex.vocab, normalized, "vocab");
     const grammarHit = lookupKey(glossIndex.grammar, normalized, "grammar");
-    const best = pickBest(vocabHit, grammarHit);
-    if (!best) continue;
+    if (!vocabHit && !grammarHit) continue;
     // Trim leading/trailing words whose individual normalization is empty.
     const windowStart = start;
     const windowEnd = start + len - 1;
@@ -192,6 +195,8 @@ function findMatch(
     // Boundary extension is dictionary-driven: extend outward one word at a
     // time as long as the broader surface remains a verbatim substring of
     // some gloss of the matched entry. See class-doc comment above.
+    const best = pickBest(vocabHit, grammarHit)!;
+    const altHit = best.kind === "vocab" ? grammarHit : vocabHit;
     const matchGlosses = getEntryGlosses(resources, best.kind, best.postings[0][0]);
     if (matchGlosses.length > 0) {
       let lo = firstWord;
@@ -214,6 +219,7 @@ function findMatch(
       lastWord,
       normalizedKey: normalized.join(" "),
       hit: best,
+      altHit,
     };
   }
   return null;
@@ -242,8 +248,19 @@ function buildCandidate(
   if (kind === "vocab") {
     const entry = resources.dictionary.words[head];
     if (!entry) return null;
+    // Collect POS from the matched sense for context pills.
     const sense = entry.s[senseIdx];
     if (!sense) return null;
+    // Gather all unique glosses across every sense — mirrors senseGlosses()
+    // in cards.ts so the user sees each distinct meaning, not just one.
+    const seen = new Set<string>();
+    const meanings: string[] = [];
+    for (const s of entry.s) {
+      const text = s.glosses.join("; ");
+      if (seen.has(text)) continue;
+      seen.add(text);
+      meanings.push(text);
+    }
     return {
       head,
       reading: entry.r[0],
@@ -251,7 +268,7 @@ function buildCandidate(
       // Limit to the first couple of POS tags — the card body otherwise
       // crowds with vt/vi/n/adj-* permutations.
       pos: sense.pos.slice(0, 2),
-      disambig: sense.glosses.join("; "),
+      meanings,
     };
   }
   const entry = resources.grammar.get(head);
@@ -262,7 +279,7 @@ function buildCandidate(
     reading: card.reading,
     kind: "grammar",
     pos: card.pos,
-    disambig: card.glosses[0] || undefined,
+    meanings: card.glosses.length > 0 ? card.glosses : ["—"],
   };
 }
 
@@ -335,24 +352,65 @@ export function lookupEnglish(
       const lastW = words[match.lastWord];
       maybeEmitPunct(query, lastEnd, firstW.start, tokens);
       const surface = query.slice(firstW.start, lastW.end);
+
+      // Build a single card that merges candidates from both hits (vocab +
+      // grammar) so the user sees all matching entries without splitting into
+      // two cards. The primary hit determines card styling; `types` tracks
+      // which kinds are present so the UI filter works correctly.
       const cardId = "en-" + match.normalizedKey;
       let card = cardsById.get(cardId) ?? null;
       if (!card) {
-        card = buildEnglishCard(
-          resources,
-          surface,
-          match.normalizedKey,
-          match.hit.kind,
-          match.hit.postings,
-        );
-        if (card) cardsById.set(cardId, card);
+        const mainTypes: ("vocab" | "grammar")[] = [match.hit.kind];
+        if (match.altHit) mainTypes.push(match.altHit.kind);
+
+        // Collect candidates from the primary hit.
+        const allCandidates: CandidateRef[] = [];
+        const seen = new Set<string>();
+
+        for (const posting of match.hit.postings) {
+          if (allCandidates.length >= CANDIDATES_PER_CARD) break;
+          if (seen.has(posting[0])) continue;
+          const cand = buildCandidate(resources, match.hit.kind, posting);
+          if (!cand) continue;
+          seen.add(posting[0]);
+          allCandidates.push(cand);
+        }
+
+        // Merge candidates from the alt hit up to remaining budget.
+        if (match.altHit) {
+          const remaining = CANDIDATES_PER_CARD - allCandidates.length;
+          for (const posting of match.altHit.postings) {
+            if (allCandidates.length >= CANDIDATES_PER_CARD) break;
+            if (seen.has(posting[0])) continue;
+            const cand = buildCandidate(resources, match.altHit!.kind, posting);
+            if (!cand) continue;
+            seen.add(posting[0]);
+            allCandidates.push(cand);
+          }
+        }
+
+        if (allCandidates.length > 0) {
+          card = {
+            id: cardId,
+            type: match.hit.kind,
+            types: mainTypes,
+            head: surface,
+            pos: [],
+            glosses: [],
+            candidates: allCandidates,
+          };
+          cardsById.set(cardId, card);
+        }
       }
-      if (card) {
+
+      // Use the merged card for the token chip.
+      let displayCard = card;
+      if (displayCard) {
         const kind: ChipKind = match.hit.kind;
         // Chip's "pos" slot shows the top JP candidate's headword as an
         // at-a-glance hint; the full candidate list lives on the card.
-        const topJp = card.candidates && card.candidates[0]
-          ? card.candidates[0].head
+        const topJp = displayCard.candidates && displayCard.candidates[0]
+          ? displayCard.candidates[0].head
           : "";
         tokens.push({
           surface,

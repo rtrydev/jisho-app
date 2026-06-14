@@ -5,7 +5,7 @@ export function formatCard(card: TermCardData, format: CopyFormat): string {
   // EN→JP inverted card: the head is the user's English query, the body is
   // a candidate list of JP entries. The format mirrors the visual layout
   // — English headline, candidates as numbered lines with JP + kana + POS
-  // + a one-line disambiguator.
+  // + all meaning variants.
   if (card.candidates && card.candidates.length > 0) {
     if (format === "markdown") {
       const lines: string[] = [];
@@ -14,8 +14,8 @@ export function formatCard(card: TermCardData, format: CopyFormat): string {
       card.candidates.forEach((c, i) => {
         const reading = c.reading && c.reading !== c.head ? ` （${c.reading}）` : "";
         const pos = c.pos.length ? ` _${c.pos.join(" · ")}_` : "";
-        const tail = c.disambig ? ` — ${c.disambig}` : "";
-        lines.push(`${i + 1}. ${c.head}${reading}${pos}${tail}`);
+        const meanings = c.meanings.length ? ` — ${c.meanings.join("; ")}` : "";
+        lines.push(`${i + 1}. ${c.head}${reading}${pos}${meanings}`);
       });
       return lines.join("\n");
     }
@@ -24,8 +24,8 @@ export function formatCard(card: TermCardData, format: CopyFormat): string {
     card.candidates.forEach((c, i) => {
       const reading = c.reading && c.reading !== c.head ? ` (${c.reading})` : "";
       const pos = c.pos.length ? ` [${c.pos.join("/")}]` : "";
-      const tail = c.disambig ? ` — ${c.disambig}` : "";
-      lines.push(`${i + 1}. ${c.head}${reading}${pos}${tail}`);
+      const meanings = c.meanings.length ? ` — ${c.meanings.join("; ")}` : "";
+      lines.push(`${i + 1}. ${c.head}${reading}${pos}${meanings}`);
     });
     return lines.join("\n");
   }

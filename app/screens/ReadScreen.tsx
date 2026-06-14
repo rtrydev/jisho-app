@@ -100,7 +100,10 @@ export function ReadScreen({
 
   const visibleCards = useMemo<TermCardData[]>(() => {
     if (filter === "all") return result.cardItems;
-    return result.cardItems.filter((c) => c.type === filter);
+    return result.cardItems.filter((c) => {
+      const types = c.types ?? [c.type];
+      return types.includes(filter);
+    });
   }, [result.cardItems, filter]);
 
   const cardColumns = useMemo<[TermCardData[], TermCardData[]]>(() => {
